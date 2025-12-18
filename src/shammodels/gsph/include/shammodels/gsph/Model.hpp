@@ -199,6 +199,15 @@ namespace shammodels::gsph {
 
                     u32 nvar = f.get_nvar();
 
+                    // Validate ivar parameter to prevent out-of-bounds access
+                    if (ivar >= nvar) {
+                        shambase::throw_with_loc<std::invalid_argument>(shambase::format(
+                            "set_value_in_a_box: ivar ({}) >= f.get_nvar ({}) for field {}",
+                            ivar,
+                            nvar,
+                            field_name));
+                    }
+
                     {
                         auto acc     = f.get_buf().template mirror_to<sham::host>();
                         auto acc_xyz = xyz.get_buf().template mirror_to<sham::host>();

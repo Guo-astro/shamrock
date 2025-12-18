@@ -750,8 +750,23 @@ void shammodels::gsph::Solver<Tvec, Kern>::compute_omega() {
     });
 
     // Ensure fields are allocated for all patches with correct sizes
-    omega_field.ensure_sizes(sizes->indexes);
-    density_field.ensure_sizes(sizes->indexes);
+    omega_field.ensure_sizes(sizes);
+    density_field.ensure_sizes(sizes);
+
+    // Compute density and omega via SPH summation using neighbor cache
+    // Reference: g_pre_interaction.cpp from sphcode
+    // dens_i = sum_j m_j * W(r_ij, h_i)
+    // dh_dens_i = sum_j m_j * dhW(r_ij, h_i)
+    // omega = 1 / (1 + h/(D*rho) * dh_rho)
+
+    auto &merged_xyzh     = storage.merged_xyzh.get();
+    constexpr Tscal Rker2 = Kernel::Rkern * Kernel::Rkern;
+    constexpr u32 DIM     = 3; // 3D
+
+    // Configuration for h iteration - use values from solver config
+    const u32 MAX_H_ITER   = solver_config.h_iter_per_subcycles;
+    const Tscal H_TOL      = solver_config.epsilon_h;
+    const Tscal H_EVOL_MAX = solver_config.htol_up_fine_cycle;
 
     // Get patchdata layout for hpart field
     PatchDataLayerLayout &pdl = scheduler().pdl();

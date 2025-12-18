@@ -46,8 +46,8 @@ namespace shammodels::gsph::modules {
         meta["config"]["gamma"]      = solver_config.gamma;
         meta["config"]["gpart_mass"] = solver_config.gpart_mass;
         meta["config"]["cfl_cour"]   = solver_config.cfl_cour;
-        meta["config"]["htol_up"]    = solver_config.htol_up;
-        meta["config"]["htol_down"]  = solver_config.htol_down;
+        meta["config"]["htol_up_coarse_cycle"] = solver_config.htol_up_coarse_cycle;
+        meta["config"]["htol_up_fine_cycle"]   = solver_config.htol_up_fine_cycle;
 
         // EOS type
         if (solver_config.eos_config.is_adiabatic()) {
