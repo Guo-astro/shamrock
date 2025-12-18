@@ -18,6 +18,7 @@ set(Sources
     src/Model.cpp
     src/modules/UpdateDerivs.cpp
     src/modules/io/VTKDump.cpp
+    src/modules/io/GSPHCheckpoint.cpp
     src/pyGSPHModel.cpp
 )
 

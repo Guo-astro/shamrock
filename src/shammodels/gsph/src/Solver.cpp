@@ -40,6 +40,7 @@
 #include "shammodels/gsph/modules/UpdateDerivs.hpp"
 #include "shammodels/gsph/modules/io/GSPHCheckpoint.hpp"
 #include "shammodels/gsph/modules/io/VTKDump.hpp"
+#include "shammodels/gsph/modules/io/GSPHCheckpoint.hpp"
 #include "shammodels/sph/BasicSPHGhosts.hpp"
 #include "shammodels/sph/SPHUtilities.hpp"
 #include "shammodels/sph/modules/LoopSmoothingLengthIter.hpp"

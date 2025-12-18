@@ -83,42 +83,6 @@ void add_gsph_instance(py::module &m, std::string name_config, std::string name_
     Fast approximate Riemann solver that captures contact discontinuities.
     Recommended for general use - good balance of accuracy and speed.
 )==")
-        .def(
-            "set_riemann_exact",
-            [](TConfig &self, Tscal tol) {
-                self.set_riemann_exact(tol);
-            },
-            py::kw_only(),
-            py::arg("tolerance") = Tscal{1e-8},
-            R"==(
-    Set exact Riemann solver.
-
-    Uses Newton iteration to find the exact solution.
-    Most accurate but slowest.
-
-    Parameters
-    ----------
-    tolerance : float
-        Convergence tolerance (default: 1e-8)
-)==")
-        .def(
-            "set_riemann_roe",
-            [](TConfig &self, Tscal entropy_fix) {
-                self.set_riemann_roe(entropy_fix);
-            },
-            py::kw_only(),
-            py::arg("entropy_fix") = Tscal{0.1},
-            R"==(
-    Set Roe linearized Riemann solver.
-
-    Fast approximate solver using linearization about the Roe average.
-    May produce entropy-violating solutions near sonic points without entropy fix.
-
-    Parameters
-    ----------
-    entropy_fix : float
-        Entropy fix parameter (default: 0.1)
-)==")
         // Reconstruction config
         .def(
             "set_reconstruct_piecewise_constant",
@@ -489,7 +453,62 @@ For a shock tube with walls in x-direction and periodic in y/z:
                 return self.solver.solver_config.set_next_dt(dt);
             })
         .def("load_from_dump", &T::load_from_dump)
-        .def("dump", &T::dump);
+        .def("dump", &T::dump)
+        .def(
+            "write_checkpoint",
+            &T::write_checkpoint,
+            py::arg("basename"),
+            R"==(
+    Write a checkpoint to disk.
+
+    Saves the current simulation state to checkpoint files.
+    Creates {basename}.json (metadata) and {basename}.bin (particle data).
+
+    Parameters
+    ----------
+    basename : str
+        Base filename (without extension)
+
+    Example
+    -------
+    >>> model.write_checkpoint("checkpoint_0001")
+    # Creates checkpoint_0001.json and checkpoint_0001.bin
+)==")
+        .def(
+            "read_checkpoint",
+            &T::read_checkpoint,
+            py::arg("basename"),
+            R"==(
+    Read a checkpoint from disk.
+
+    Loads simulation state from checkpoint files.
+
+    Parameters
+    ----------
+    basename : str
+        Base filename (without extension)
+
+    Example
+    -------
+    >>> model.read_checkpoint("checkpoint_0001")
+)==")
+        .def_static(
+            "checkpoint_exists",
+            &T::checkpoint_exists,
+            py::arg("basename"),
+            R"==(
+    Check if a checkpoint file exists.
+
+    Parameters
+    ----------
+    basename : str
+        Base filename (without extension)
+
+    Returns
+    -------
+    bool
+        True if checkpoint exists
+)==");
 }
 
 using namespace shammodels::gsph;

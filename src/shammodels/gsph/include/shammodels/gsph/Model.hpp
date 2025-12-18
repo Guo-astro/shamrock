@@ -289,8 +289,41 @@ namespace shammodels::gsph {
         inline u64 solver_logs_last_obj_count() { return solver.solve_logs.get_last_obj_count(); }
 
         ////////////////////////////////////////////////////////////////////////////////////////////
-        // I/O
+        // I/O and Checkpointing
         ////////////////////////////////////////////////////////////////////////////////////////////
+
+        /**
+         * @brief Write a checkpoint to disk
+         *
+         * Saves the current simulation state to checkpoint files.
+         * Creates {basename}.json (metadata) and {basename}.bin (particle data).
+         *
+         * @param basename Base filename (without extension)
+         */
+        inline void write_checkpoint(const std::string &basename) {
+            solver.write_checkpoint(basename);
+        }
+
+        /**
+         * @brief Read a checkpoint from disk
+         *
+         * Loads simulation state from checkpoint files.
+         *
+         * @param basename Base filename (without extension)
+         */
+        inline void read_checkpoint(const std::string &basename) {
+            solver.read_checkpoint(basename);
+        }
+
+        /**
+         * @brief Check if a checkpoint file exists
+         *
+         * @param basename Base filename (without extension)
+         * @return true if checkpoint exists
+         */
+        static bool checkpoint_exists(const std::string &basename) {
+            return Solver::checkpoint_exists(basename);
+        }
 
         inline void load_from_dump(std::string fname) {
             if (shamcomm::world_rank() == 0) {
