@@ -233,6 +233,10 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs() {
         update_derivs_iterative(*v);
     } else if (HLLC *v = std::get_if<HLLC>(&cfg_riemann.config)) {
         update_derivs_hllc(*v);
+    } else if (Exact *v = std::get_if<Exact>(&cfg_riemann.config)) {
+        shambase::throw_unimplemented("Exact Riemann solver not yet implemented");
+    } else if (Roe *v = std::get_if<Roe>(&cfg_riemann.config)) {
+        shambase::throw_unimplemented("Roe Riemann solver not yet implemented");
     } else {
         shambase::throw_unimplemented("Unknown Riemann solver type");
     }
