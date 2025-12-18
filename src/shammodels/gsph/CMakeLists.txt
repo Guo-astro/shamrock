@@ -11,10 +11,9 @@ cmake_minimum_required(VERSION 3.9)
 
 project(Shammodels_gsph CXX C)
 
-# Sources: Core infrastructure + Physics modules
+# Core infrastructure sources (Phase 1)
 set(Sources
     src/SolverConfig.cpp
-    src/modules/UpdateDerivs.cpp
 )
 
 if(SHAMROCK_USE_SHARED_LIB)
@@ -32,9 +31,7 @@ target_link_libraries(shammodels_gsph PUBLIC shamlib)
 target_link_libraries(shammodels_gsph PUBLIC shammath)
 target_link_libraries(shammodels_gsph PUBLIC shamphys)
 target_link_libraries(shammodels_gsph PUBLIC shamsys)
-target_link_libraries(shammodels_gsph PUBLIC shamtree)
 target_link_libraries(shammodels_gsph PUBLIC shammodels_common)
-target_link_libraries(shammodels_gsph PUBLIC shammodels_sph)
 target_link_libraries(shammodels_gsph PUBLIC nlohmann_json::nlohmann_json)
 
 target_include_directories(shammodels_gsph PUBLIC
