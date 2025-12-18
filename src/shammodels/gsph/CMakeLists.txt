@@ -11,16 +11,10 @@ cmake_minimum_required(VERSION 3.9)
 
 project(Shammodels_gsph CXX C)
 
-# Sources: Complete GSPH implementation with Python bindings
+# Sources: Core infrastructure + Physics modules
 set(Sources
     src/SolverConfig.cpp
-    src/Solver.cpp
-    src/Model.cpp
     src/modules/UpdateDerivs.cpp
-    src/modules/IterateSmoothingLengthDensity.cpp
-    src/modules/io/VTKDump.cpp
-    src/modules/io/GSPHCheckpoint.cpp
-    src/pyGSPHModel.cpp
 )
 
 if(SHAMROCK_USE_SHARED_LIB)

@@ -9,8 +9,8 @@
 
 /**
  * @file UpdateDerivs.cpp
- * @author Guo Yansong (guo.yansong.ngy@gmail.com)
- * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr) --no git blame--
+ * @author Guo (guo.yansong@optimind.tech)
+ * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr)
  * @brief Implementation of GSPH derivative update module
  *
  * This file implements the core GSPH algorithm: for each particle pair,
@@ -32,12 +32,196 @@
 #include "shamsys/legacy/log.hpp"
 #include "shamtree/TreeTraversal.hpp"
 
-// Named constants for numerical stability (used in derivative calculations)
-namespace {
-    constexpr f64 MAX_ACCELERATION_CLAMP = 1e6;  // Maximum allowed acceleration magnitude
-    constexpr f64 MAX_DUDT_CLAMP         = 1e6;  // Maximum allowed du/dt magnitude
-    constexpr f64 P_STAR_MAX_RATIO       = 10.0; // Max ratio of p_star to average pressure
-} // namespace
+namespace shammodels::gsph {
+
+    /**
+     * @brief Iterative Riemann solver (van Leer 1997)
+     *
+     * Solves the 1D Riemann problem for two states across an interface.
+     * Uses Newton-Raphson iteration to find the contact pressure p*.
+     *
+     * This implementation matches the reference sphcode's iterative_solver()
+     * which uses Lagrangian sound speeds (mass flux) rather than Eulerian.
+     *
+     * @param rho_L Left density
+     * @param u_L Left velocity (projected onto interface normal)
+     * @param P_L Left pressure
+     * @param rho_R Right density
+     * @param u_R Right velocity (projected onto interface normal)
+     * @param P_R Right pressure
+     * @param gamma Adiabatic index
+     * @param tol Convergence tolerance
+     * @param max_iter Maximum iterations
+     * @return {p_star, v_star} Contact pressure and velocity
+     */
+    template<class Tscal>
+    inline std::pair<Tscal, Tscal> riemann_iterative(
+        Tscal rho_L,
+        Tscal u_L,
+        Tscal P_L,
+        Tscal rho_R,
+        Tscal u_R,
+        Tscal P_R,
+        Tscal gamma,
+        Tscal tol,
+        u32 max_iter) {
+
+        // Input validation
+        const Tscal smallp = Tscal(1e-25);
+        if (rho_L <= Tscal(0) || rho_R <= Tscal(0) || P_L <= Tscal(0) || P_R <= Tscal(0)) {
+            return {Tscal(0.5) * (P_L + P_R), Tscal(0.5) * (u_L + u_R)};
+        }
+
+        // Constants (matching reference code)
+        const Tscal gamma2 = Tscal(1) + gamma;            // gamma + 1
+        const Tscal gamma1 = Tscal(0.5) * gamma2 / gamma; // (gamma + 1) / (2 * gamma)
+
+        // Specific volumes
+        const Tscal V_L = Tscal(1) / rho_L;
+        const Tscal V_R = Tscal(1) / rho_R;
+
+        // Lagrangian sound speeds (mass flux): c_L = sqrt(gamma * P * rho) = rho * c_s
+        const Tscal cl = sycl::sqrt(gamma * P_L * rho_L);
+        const Tscal cr = sycl::sqrt(gamma * P_R * rho_R);
+
+        // Initial guess for pstar (from reference code)
+        Tscal pstar_guess = P_R - P_L - cr * (u_R - u_L);
+        pstar_guess       = P_L + pstar_guess * cl / (cl + cr);
+        pstar_guess       = sycl::max(pstar_guess, smallp);
+
+        // Newton-Raphson iteration
+        Tscal pstar = pstar_guess;
+
+        for (u32 iter = 0; iter < max_iter; iter++) {
+            const Tscal pstar_old = pstar;
+
+            // Left wave impedance
+            Tscal w_L = Tscal(1) + gamma1 * (pstar - P_L) / P_L;
+            w_L       = cl * sycl::sqrt(sycl::max(w_L, Tscal(0.01)));
+
+            // Right wave impedance
+            Tscal w_R = Tscal(1) + gamma1 * (pstar - P_R) / P_R;
+            w_R       = cr * sycl::sqrt(sycl::max(w_R, Tscal(0.01)));
+
+            // Left derivative
+            Tscal z_L     = Tscal(4) * V_L * w_L * w_L;
+            Tscal denom_L = z_L - gamma2 * (pstar - P_L);
+            z_L           = -z_L * w_L / (denom_L + Tscal(1e-30));
+
+            // Right derivative
+            Tscal z_R     = Tscal(4) * V_R * w_R * w_R;
+            Tscal denom_R = z_R - gamma2 * (pstar - P_R);
+            z_R           = z_R * w_R / (denom_R + Tscal(1e-30));
+
+            // Intermediate velocities
+            const Tscal ustar_L = u_L - (pstar - P_L) / w_L;
+            const Tscal ustar_R = u_R + (pstar - P_R) / w_R;
+
+            // Newton-Raphson update
+            Tscal denom = z_R - z_L;
+            if (sycl::fabs(denom) < Tscal(1e-30)) {
+                break; // Avoid division by zero
+            }
+            pstar = pstar + (ustar_R - ustar_L) * (z_L * z_R) / denom;
+            pstar = sycl::max(smallp, pstar);
+
+            // Check convergence
+            if (sycl::fabs(pstar - pstar_old) < tol * pstar) {
+                break;
+            }
+        }
+
+        // Recalculate wave impedances with final pstar
+        Tscal w_L = Tscal(1) + gamma1 * (pstar - P_L) / P_L;
+        w_L       = cl * sycl::sqrt(sycl::max(w_L, Tscal(0.01)));
+
+        Tscal w_R = Tscal(1) + gamma1 * (pstar - P_R) / P_R;
+        w_R       = cr * sycl::sqrt(sycl::max(w_R, Tscal(0.01)));
+
+        // Calculate averaged ustar
+        const Tscal ustar_L = u_L - (pstar - P_L) / w_L;
+        const Tscal ustar_R = u_R + (pstar - P_R) / w_R;
+        Tscal ustar         = Tscal(0.5) * (ustar_L + ustar_R);
+
+        // Final validation
+        if (!sycl::isfinite(pstar)) {
+            pstar = Tscal(0.5) * (P_L + P_R);
+        }
+        if (!sycl::isfinite(ustar)) {
+            ustar = Tscal(0.5) * (u_L + u_R);
+        }
+
+        return {pstar, ustar};
+    }
+
+    /**
+     * @brief HLLC approximate Riemann solver
+     *
+     * Fast approximate solver using wave speed estimates.
+     */
+    template<class Tscal>
+    inline std::pair<Tscal, Tscal> riemann_hllc(
+        Tscal rho_L,
+        Tscal u_L,
+        Tscal P_L,
+        Tscal cs_L,
+        Tscal rho_R,
+        Tscal u_R,
+        Tscal P_R,
+        Tscal cs_R) {
+
+        // Input validation
+        const Tscal eps = Tscal(1e-30);
+        rho_L           = sycl::max(rho_L, eps);
+        rho_R           = sycl::max(rho_R, eps);
+        P_L             = sycl::max(P_L, eps);
+        P_R             = sycl::max(P_R, eps);
+        cs_L            = sycl::max(cs_L, Tscal(1e-10));
+        cs_R            = sycl::max(cs_R, Tscal(1e-10));
+
+        // Guard against NaN velocities
+        if (!sycl::isfinite(u_L))
+            u_L = Tscal(0);
+        if (!sycl::isfinite(u_R))
+            u_R = Tscal(0);
+
+        // PVRS estimate for p*
+        Tscal p_pvrs = Tscal(0.5) * (P_L + P_R)
+                       - Tscal(0.25) * (u_R - u_L) * (rho_L + rho_R) * (cs_L + cs_R);
+        Tscal p_star = sycl::max(p_pvrs, Tscal(0));
+
+        // Wave speed estimates
+        Tscal q_L = (p_star > P_L) ? sycl::sqrt(Tscal(1) + Tscal(1.2) * (p_star / P_L - Tscal(1)))
+                                   : Tscal(1);
+        Tscal q_R = (p_star > P_R) ? sycl::sqrt(Tscal(1) + Tscal(1.2) * (p_star / P_R - Tscal(1)))
+                                   : Tscal(1);
+
+        Tscal S_L = u_L - cs_L * q_L;
+        Tscal S_R = u_R + cs_R * q_R;
+
+        // Contact wave speed
+        Tscal S_star = (P_R - P_L + rho_L * u_L * (S_L - u_L) - rho_R * u_R * (S_R - u_R))
+                       / (rho_L * (S_L - u_L) - rho_R * (S_R - u_R) + Tscal(1e-30));
+
+        // HLLC pressure
+        Tscal p_hllc
+            = Tscal(0.5) * (P_L + P_R)
+              + Tscal(0.5)
+                    * (rho_L * (S_L - u_L) * (S_star - u_L) + rho_R * (S_R - u_R) * (S_star - u_R));
+        p_hllc = sycl::max(p_hllc, Tscal(1e-10));
+
+        // Final validation
+        if (!sycl::isfinite(p_hllc)) {
+            p_hllc = Tscal(0.5) * (P_L + P_R);
+        }
+        if (!sycl::isfinite(S_star)) {
+            S_star = Tscal(0.5) * (u_L + u_R);
+        }
+
+        return {p_hllc, S_star};
+    }
+
+} // namespace shammodels::gsph
 
 template<class Tvec, template<class> class SPHKernel>
 void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs() {
@@ -49,10 +233,6 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs() {
         update_derivs_iterative(*v);
     } else if (HLLC *v = std::get_if<HLLC>(&cfg_riemann.config)) {
         update_derivs_hllc(*v);
-    } else if (Exact *v = std::get_if<Exact>(&cfg_riemann.config)) {
-        shambase::throw_unimplemented("Exact Riemann solver not yet implemented");
-    } else if (Roe *v = std::get_if<Roe>(&cfg_riemann.config)) {
-        shambase::throw_unimplemented("Roe Riemann solver not yet implemented");
     } else {
         shambase::throw_unimplemented("Unknown Riemann solver type");
     }
@@ -233,10 +413,9 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_ite
 
                     // Limit p_star to prevent excessive shock forces
                     // Maximum p_star is limited to a multiple of the average pressure
-                    const Tscal p_avg = Tscal(0.5) * (P_a + P_b);
-                    const Tscal p_star_max
-                        = Tscal(P_STAR_MAX_RATIO) * sycl::max(p_avg, sycl::max(P_a, P_b));
-                    p_star = sycl::min(p_star, p_star_max);
+                    const Tscal p_avg      = Tscal(0.5) * (P_a + P_b);
+                    const Tscal p_star_max = Tscal(10.0) * sycl::max(p_avg, sycl::max(P_a, P_b));
+                    p_star                 = sycl::min(p_star, p_star_max);
 
                     // Kernel gradients
                     const Tscal Fab_a = Kernel::dW_3d(rab, h_a);
@@ -253,10 +432,10 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_ite
 
                     sum_axyz -= coeff * r_ab_unit;
 
-                    // GSPH energy equation (Cha & Whitworth 2003, Eq. 11)
-                    // du_a/dt = -sum_b m_b * p* * (v* - v_a) * nabla_W_a / (rho_a^2 * omega_a)
-                    // NOTE: Energy equation is NOT symmetric - only uses particle a's kernel
-                    // gradient
+                    // GSPH energy equation (matching reference g_fluid_force.cpp)
+                    // du_a/dt = -sum_b f · (v* - v_a)
+                    // where v* = vstar * e_ij (interface velocity in pair direction)
+                    // Since f = coeff * e_ij, we have: du/dt = -coeff * (vstar - u_a_proj)
                     if (do_energy) {
                         sum_du_a -= coeff * (v_star - u_a_proj);
                     }
@@ -459,10 +638,9 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_hll
                         cs_a); // Right = current
 
                     // Limit p_star to prevent excessive shock forces
-                    const Tscal p_avg = Tscal(0.5) * (P_a + P_b);
-                    const Tscal p_star_max
-                        = Tscal(P_STAR_MAX_RATIO) * sycl::max(p_avg, sycl::max(P_a, P_b));
-                    p_star = sycl::min(p_star, p_star_max);
+                    const Tscal p_avg      = Tscal(0.5) * (P_a + P_b);
+                    const Tscal p_star_max = Tscal(10.0) * sycl::max(p_avg, sycl::max(P_a, P_b));
+                    p_star                 = sycl::min(p_star, p_star_max);
 
                     const Tscal Fab_a = Kernel::dW_3d(rab, h_a);
                     const Tscal Fab_b = Kernel::dW_3d(rab, h_b);
@@ -475,10 +653,8 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_hll
 
                     sum_axyz -= coeff * r_ab_unit;
 
-                    // GSPH energy equation (Cha & Whitworth 2003, Eq. 11)
-                    // du_a/dt = -sum_b m_b * p* * (v* - v_a) * nabla_W_a / (rho_a^2 * omega_a)
-                    // NOTE: Energy equation is NOT symmetric - only uses particle a's kernel
-                    // gradient
+                    // GSPH energy equation (matching reference g_fluid_force.cpp)
+                    // du_a/dt = -sum_b f · (v* - v_a)
                     if (do_energy) {
                         sum_du_a -= coeff * (v_star - u_a_proj);
                     }
