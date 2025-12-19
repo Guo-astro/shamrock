@@ -118,19 +118,6 @@ namespace shammodels::gsph {
 
         void apply_position_boundary(Tscal time_val);
 
-        /**
-         * @brief Update wall particles dynamically
-         *
-         * Removes existing wall particles and creates new ones that mirror
-         * the current boundary particles. Should be called each timestep
-         * after the predictor step for wall boundary conditions.
-         *
-         * @param num_layers Number of particle layers to mirror
-         * @param wall_flags Which walls to create (bit flags)
-         * @return Number of wall particles created
-         */
-        u64 update_wall_particles(u32 num_layers, u32 wall_flags);
-
         void do_predictor_leapfrog(Tscal dt);
 
         void init_ghost_layout();
@@ -173,6 +160,32 @@ namespace shammodels::gsph {
         void init_solver_graph();
 
         void vtk_do_dump(std::string filename, bool add_patch_world_id);
+
+        /**
+         * @brief Write a checkpoint to disk
+         *
+         * Saves the current simulation state to checkpoint files.
+         *
+         * @param basename Base filename (without extension)
+         */
+        void write_checkpoint(const std::string &basename);
+
+        /**
+         * @brief Read a checkpoint from disk
+         *
+         * Loads simulation state from checkpoint files.
+         *
+         * @param basename Base filename (without extension)
+         */
+        void read_checkpoint(const std::string &basename);
+
+        /**
+         * @brief Check if a checkpoint file exists
+         *
+         * @param basename Base filename (without extension)
+         * @return true if checkpoint exists
+         */
+        static bool checkpoint_exists(const std::string &basename);
 
         inline void print_timestep_logs() {
             if (shamcomm::world_rank() == 0) {

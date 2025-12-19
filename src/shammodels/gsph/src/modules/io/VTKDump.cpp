@@ -156,11 +156,10 @@ namespace shammodels::gsph::modules {
         shamrock::SchedulerUtility utility(scheduler());
 
         PatchDataLayerLayout &pdl = scheduler().pdl();
-        const u32 ixyz            = pdl.get_field_idx<Tvec>("xyz");
-        const u32 ivxyz           = pdl.get_field_idx<Tvec>("vxyz");
-        const u32 iaxyz           = pdl.get_field_idx<Tvec>("axyz");
-        const u32 ihpart          = pdl.get_field_idx<Tscal>("hpart");
-        const u32 iwall_flag      = pdl.get_field_idx<u32>("wall_flag");
+        const u32 ixyz   = pdl.get_field_idx<Tvec>("xyz");
+        const u32 ivxyz  = pdl.get_field_idx<Tvec>("vxyz");
+        const u32 iaxyz  = pdl.get_field_idx<Tvec>("axyz");
+        const u32 ihpart = pdl.get_field_idx<Tscal>("hpart");
 
         // Check for optional internal energy field
         const bool has_uint = solver_config.has_field_uint();
@@ -254,7 +253,6 @@ namespace shammodels::gsph::modules {
         fnum++; // a
         fnum++; // rho
         fnum++; // P
-        fnum++; // wall_flag
 
         if (has_uint) {
             fnum++; // u
@@ -277,7 +275,6 @@ namespace shammodels::gsph::modules {
 
         vtk_dump_add_compute_field(scheduler(), writter, density, "rho");
         vtk_dump_add_compute_field(scheduler(), writter, pressure_field, "P");
-        vtk_dump_add_field<u32>(scheduler(), writter, iwall_flag, "wall_flag");
     }
 
 } // namespace shammodels::gsph::modules

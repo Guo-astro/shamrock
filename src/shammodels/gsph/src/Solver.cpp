@@ -37,10 +37,13 @@
 #include "shammodels/gsph/Solver.hpp"
 #include "shammodels/gsph/SolverConfig.hpp"
 #include "shammodels/gsph/modules/UpdateDerivs.hpp"
+#include "shammodels/gsph/modules/IterateSmoothingLengthDensity.hpp"
 #include "shammodels/gsph/modules/io/VTKDump.hpp"
+#include "shammodels/gsph/modules/io/GSPHCheckpoint.hpp"
 #include "shammodels/sph/BasicSPHGhosts.hpp"
 #include "shammodels/sph/SPHUtilities.hpp"
 #include "shammodels/sph/modules/NeighbourCache.hpp"
+#include "shammodels/sph/modules/LoopSmoothingLengthIter.hpp"
 #include "shamrock/patch/Patch.hpp"
 #include "shamrock/patch/PatchDataLayer.hpp"
 #include "shamrock/patch/PatchDataLayerLayout.hpp"
@@ -116,24 +119,19 @@ void shammodels::gsph::Solver<Tvec, Kern>::gen_ghost_handler(Tscal time_val) {
 
     using BCFree     = typename CfgClass::Free;
     using BCPeriodic = typename CfgClass::Periodic;
-    using BCWall     = typename CfgClass::Wall;
 
     using SolverConfigBC   = typename Config::BCConfig;
     using SolverBCFree     = typename SolverConfigBC::Free;
     using SolverBCPeriodic = typename SolverConfigBC::Periodic;
-    using SolverBCWall     = typename SolverConfigBC::Wall;
 
     // Boundary condition selection - similar to SPH solver
+    // Note: Wall boundaries use Periodic with dynamic wall particles
     if (SolverBCFree *c = std::get_if<SolverBCFree>(&solver_config.boundary_config.config)) {
         storage.ghost_handler.set(GhostHandle{scheduler(), BCFree{}, storage.patch_rank_owner});
     } else if (
         SolverBCPeriodic *c
         = std::get_if<SolverBCPeriodic>(&solver_config.boundary_config.config)) {
         storage.ghost_handler.set(GhostHandle{scheduler(), BCPeriodic{}, storage.patch_rank_owner});
-    } else if (SolverBCWall *c = std::get_if<SolverBCWall>(&solver_config.boundary_config.config)) {
-        // For wall boundaries, use Wall ghost handling
-        // Wall particles created manually provide boundary neighbor support
-        storage.ghost_handler.set(GhostHandle{scheduler(), BCWall{}, storage.patch_rank_owner});
     }
 }
 
@@ -489,301 +487,6 @@ void shammodels::gsph::Solver<Tvec, Kern>::apply_position_boundary(Tscal time_va
 }
 
 template<class Tvec, template<class> class Kern>
-u64 shammodels::gsph::Solver<Tvec, Kern>::update_wall_particles(u32 num_layers, u32 wall_flags) {
-    StackEntry stack_loc{};
-
-    // Skip if no walls requested
-    if (wall_flags == 0) {
-        return 0;
-    }
-
-    using namespace shamrock;
-    using namespace shamrock::patch;
-
-    PatchScheduler &sched     = scheduler();
-    PatchDataLayerLayout &pdl = sched.pdl();
-
-    const u32 ixyz       = pdl.get_field_idx<Tvec>("xyz");
-    const u32 ivxyz      = pdl.get_field_idx<Tvec>("vxyz");
-    const u32 ihpart     = pdl.get_field_idx<Tscal>("hpart");
-    const u32 iwall_flag = pdl.get_field_idx<u32>("wall_flag");
-    const u32 iaxyz      = pdl.get_field_idx<Tvec>("axyz");
-
-    const bool has_uint = solver_config.has_field_uint();
-    const u32 iuint     = has_uint ? pdl.get_field_idx<Tscal>("uint") : 0;
-    const u32 iduint    = has_uint ? pdl.get_field_idx<Tscal>("duint") : 0;
-
-    auto bounding_box = sched.get_sim_box().template get_bounding_box<Tvec>();
-    Tvec box_min      = std::get<0>(bounding_box);
-    Tvec box_max      = std::get<1>(bounding_box);
-
-    // Remove existing wall particles
-    u64 removed_count = 0;
-
-    sched.for_each_patchdata_nonempty([&](Patch p, PatchDataLayer &pdat) {
-        u32 cnt = pdat.get_obj_cnt();
-        if (cnt == 0)
-            return;
-
-        auto wall_flag_vec = pdat.get_field<u32>(iwall_flag).get_buf().copy_to_stdvec();
-
-        u32 regular_count = 0;
-        for (u32 i = 0; i < cnt; i++) {
-            if (wall_flag_vec[i] == 0) {
-                regular_count++;
-            }
-        }
-
-        u32 wall_count = cnt - regular_count;
-        if (wall_count == 0)
-            return;
-
-        removed_count += wall_count;
-
-        std::vector<u32> keep_indices;
-        keep_indices.reserve(regular_count);
-        for (u32 i = 0; i < cnt; i++) {
-            if (wall_flag_vec[i] == 0) {
-                keep_indices.push_back(i);
-            }
-        }
-
-        auto xyz_vec   = pdat.get_field<Tvec>(ixyz).get_buf().copy_to_stdvec();
-        auto vxyz_vec  = pdat.get_field<Tvec>(ivxyz).get_buf().copy_to_stdvec();
-        auto hpart_vec = pdat.get_field<Tscal>(ihpart).get_buf().copy_to_stdvec();
-        auto axyz_vec  = pdat.get_field<Tvec>(iaxyz).get_buf().copy_to_stdvec();
-
-        std::vector<Tscal> uint_vec, duint_vec;
-        if (has_uint) {
-            uint_vec  = pdat.get_field<Tscal>(iuint).get_buf().copy_to_stdvec();
-            duint_vec = pdat.get_field<Tscal>(iduint).get_buf().copy_to_stdvec();
-        }
-
-        std::vector<Tvec> new_xyz(regular_count);
-        std::vector<Tvec> new_vxyz(regular_count);
-        std::vector<Tscal> new_hpart(regular_count);
-        std::vector<u32> new_wall_flag(regular_count, 0);
-        std::vector<Tvec> new_axyz(regular_count);
-        std::vector<Tscal> new_uint(regular_count);
-        std::vector<Tscal> new_duint(regular_count);
-
-        for (u32 i = 0; i < regular_count; i++) {
-            new_xyz[i]   = xyz_vec[keep_indices[i]];
-            new_vxyz[i]  = vxyz_vec[keep_indices[i]];
-            new_hpart[i] = hpart_vec[keep_indices[i]];
-            new_axyz[i]  = axyz_vec[keep_indices[i]];
-            if (has_uint) {
-                new_uint[i]  = uint_vec[keep_indices[i]];
-                new_duint[i] = duint_vec[keep_indices[i]];
-            }
-        }
-
-        pdat.resize(regular_count);
-        pdat.get_field<Tvec>(ixyz).get_buf().copy_from_stdvec(new_xyz);
-        pdat.get_field<Tvec>(ivxyz).get_buf().copy_from_stdvec(new_vxyz);
-        pdat.get_field<Tscal>(ihpart).get_buf().copy_from_stdvec(new_hpart);
-        pdat.get_field<u32>(iwall_flag).get_buf().copy_from_stdvec(new_wall_flag);
-        pdat.get_field<Tvec>(iaxyz).get_buf().copy_from_stdvec(new_axyz);
-        if (has_uint) {
-            pdat.get_field<Tscal>(iuint).get_buf().copy_from_stdvec(new_uint);
-            pdat.get_field<Tscal>(iduint).get_buf().copy_from_stdvec(new_duint);
-        }
-    });
-
-    removed_count = shamalgs::collective::allreduce_sum(removed_count);
-
-    // Create new wall particles
-    const Tscal pmass = solver_config.gpart_mass;
-    Tscal h_avg       = Tscal(0);
-    u64 h_count = 0;
-
-    sched.for_each_patchdata_nonempty([&](Patch p, PatchDataLayer &pdat) {
-        auto hpart_vec = pdat.get_field<Tscal>(ihpart).get_buf().copy_to_stdvec();
-        for (auto h : hpart_vec) {
-            h_avg += h;
-            h_count++;
-        }
-    });
-
-    h_avg   = shamalgs::collective::allreduce_sum(h_avg);
-    h_count = shamalgs::collective::allreduce_sum(h_count);
-    if (h_count > 0) {
-        h_avg /= h_count;
-    } else {
-        h_avg = Kernel::hfactd * std::pow(pmass, Tscal(1.0 / 3.0));
-    }
-
-    Tscal dr = h_avg / Kernel::hfactd;
-    Tscal layer_thickness = Tscal(num_layers) * dr * Tscal(2);
-
-    u64 wall_particles_created = 0;
-
-    sched.for_each_patchdata_nonempty([&](Patch p, PatchDataLayer &pdat) {
-        u32 cnt = pdat.get_obj_cnt();
-        if (cnt == 0)
-            return;
-
-        auto xyz_vec       = pdat.get_field<Tvec>(ixyz).get_buf().copy_to_stdvec();
-        auto vxyz_vec      = pdat.get_field<Tvec>(ivxyz).get_buf().copy_to_stdvec();
-        auto hpart_vec     = pdat.get_field<Tscal>(ihpart).get_buf().copy_to_stdvec();
-        auto wall_flag_vec = pdat.get_field<u32>(iwall_flag).get_buf().copy_to_stdvec();
-        auto axyz_vec      = pdat.get_field<Tvec>(iaxyz).get_buf().copy_to_stdvec();
-
-        std::vector<Tscal> uint_vec, duint_vec;
-        if (has_uint) {
-            uint_vec  = pdat.get_field<Tscal>(iuint).get_buf().copy_to_stdvec();
-            duint_vec = pdat.get_field<Tscal>(iduint).get_buf().copy_to_stdvec();
-        }
-
-        std::vector<Tvec> wall_xyz;
-        std::vector<Tvec> wall_vxyz;
-        std::vector<Tscal> wall_hpart;
-        std::vector<Tscal> wall_uint;
-        std::vector<Tscal> wall_duint;
-        std::vector<Tvec> wall_axyz;
-
-        // Create wall particles that continue the FCC lattice pattern.
-        // For FCC, spacing within a y-z column is 2*dr.
-        for (u32 i = 0; i < cnt; i++) {
-            Tvec pos = xyz_vec[i];
-            Tscal h  = hpart_vec[i];
-
-            // -x boundary (bit 0)
-            if ((wall_flags & 0x01) && (pos[0] - box_min[0] < dr * Tscal(1.5))) {
-                for (u32 k = 1; k <= num_layers; k++) {
-                    Tvec wall_pos = pos;
-                    wall_pos[0]   = pos[0] - Tscal(2 * k) * dr;
-
-                    wall_xyz.push_back(wall_pos);
-                    wall_vxyz.push_back(vxyz_vec[i]);
-                    wall_hpart.push_back(h);
-                    wall_axyz.push_back(axyz_vec[i]);
-                    if (has_uint) {
-                        wall_uint.push_back(uint_vec[i]);
-                        wall_duint.push_back(Tscal(0));
-                    }
-                }
-            }
-
-            // +x boundary (bit 1)
-            if ((wall_flags & 0x02) && (box_max[0] - pos[0] < dr * Tscal(1.5))) {
-                for (u32 k = 1; k <= num_layers; k++) {
-                    Tvec wall_pos = pos;
-                    wall_pos[0]   = pos[0] + Tscal(2 * k) * dr;
-
-                    wall_xyz.push_back(wall_pos);
-                    wall_vxyz.push_back(vxyz_vec[i]);
-                    wall_hpart.push_back(h);
-                    wall_axyz.push_back(axyz_vec[i]);
-                    if (has_uint) {
-                        wall_uint.push_back(uint_vec[i]);
-                        wall_duint.push_back(Tscal(0));
-                    }
-                }
-            }
-
-            // -y boundary (bit 2)
-            if ((wall_flags & 0x04) && (pos[1] - box_min[1] < layer_thickness)) {
-                Tvec wall_pos = pos;
-                wall_pos[1]   = Tscal(2) * box_min[1] - pos[1];
-
-                wall_xyz.push_back(wall_pos);
-                wall_vxyz.push_back(vxyz_vec[i]);
-                wall_hpart.push_back(h);
-                wall_axyz.push_back(axyz_vec[i]);
-                if (has_uint) {
-                    wall_uint.push_back(uint_vec[i]);
-                    wall_duint.push_back(Tscal(0));
-                }
-            }
-
-            // +y boundary (bit 3)
-            if ((wall_flags & 0x08) && (box_max[1] - pos[1] < layer_thickness)) {
-                Tvec wall_pos = pos;
-                wall_pos[1]   = Tscal(2) * box_max[1] - pos[1];
-
-                wall_xyz.push_back(wall_pos);
-                wall_vxyz.push_back(vxyz_vec[i]);
-                wall_hpart.push_back(h);
-                wall_axyz.push_back(axyz_vec[i]);
-                if (has_uint) {
-                    wall_uint.push_back(uint_vec[i]);
-                    wall_duint.push_back(Tscal(0));
-                }
-            }
-
-            // -z boundary (bit 4)
-            if ((wall_flags & 0x10) && (pos[2] - box_min[2] < layer_thickness)) {
-                Tvec wall_pos = pos;
-                wall_pos[2]   = Tscal(2) * box_min[2] - pos[2];
-
-                wall_xyz.push_back(wall_pos);
-                wall_vxyz.push_back(vxyz_vec[i]);
-                wall_hpart.push_back(h);
-                wall_axyz.push_back(axyz_vec[i]);
-                if (has_uint) {
-                    wall_uint.push_back(uint_vec[i]);
-                    wall_duint.push_back(Tscal(0));
-                }
-            }
-
-            // +z boundary (bit 5)
-            if ((wall_flags & 0x20) && (box_max[2] - pos[2] < layer_thickness)) {
-                Tvec wall_pos = pos;
-                wall_pos[2]   = Tscal(2) * box_max[2] - pos[2];
-
-                wall_xyz.push_back(wall_pos);
-                wall_vxyz.push_back(vxyz_vec[i]);
-                wall_hpart.push_back(h);
-                wall_axyz.push_back(axyz_vec[i]);
-                if (has_uint) {
-                    wall_uint.push_back(uint_vec[i]);
-                    wall_duint.push_back(Tscal(0));
-                }
-            }
-        }
-
-        u32 n_wall = wall_xyz.size();
-        if (n_wall == 0)
-            return;
-
-        wall_particles_created += n_wall;
-        u32 new_cnt = cnt + n_wall;
-
-        xyz_vec.insert(xyz_vec.end(), wall_xyz.begin(), wall_xyz.end());
-        vxyz_vec.insert(vxyz_vec.end(), wall_vxyz.begin(), wall_vxyz.end());
-        hpart_vec.insert(hpart_vec.end(), wall_hpart.begin(), wall_hpart.end());
-        axyz_vec.insert(axyz_vec.end(), wall_axyz.begin(), wall_axyz.end());
-
-        wall_flag_vec.resize(new_cnt);
-        for (u32 i = cnt; i < new_cnt; i++) {
-            wall_flag_vec[i] = 1;
-        }
-
-        if (has_uint) {
-            uint_vec.insert(uint_vec.end(), wall_uint.begin(), wall_uint.end());
-            duint_vec.insert(duint_vec.end(), wall_duint.begin(), wall_duint.end());
-        }
-
-        pdat.resize(new_cnt);
-
-        pdat.get_field<Tvec>(ixyz).get_buf().copy_from_stdvec(xyz_vec);
-        pdat.get_field<Tvec>(ivxyz).get_buf().copy_from_stdvec(vxyz_vec);
-        pdat.get_field<Tscal>(ihpart).get_buf().copy_from_stdvec(hpart_vec);
-        pdat.get_field<u32>(iwall_flag).get_buf().copy_from_stdvec(wall_flag_vec);
-        pdat.get_field<Tvec>(iaxyz).get_buf().copy_from_stdvec(axyz_vec);
-
-        if (has_uint) {
-            pdat.get_field<Tscal>(iuint).get_buf().copy_from_stdvec(uint_vec);
-            pdat.get_field<Tscal>(iduint).get_buf().copy_from_stdvec(duint_vec);
-        }
-    });
-
-    wall_particles_created = shamalgs::collective::allreduce_sum(wall_particles_created);
-    return wall_particles_created;
-}
-
-template<class Tvec, template<class> class Kern>
 void shammodels::gsph::Solver<Tvec, Kern>::do_predictor_leapfrog(Tscal dt) {
     StackEntry stack_loc{};
     using namespace shamrock::patch;
@@ -792,7 +495,6 @@ void shammodels::gsph::Solver<Tvec, Kern>::do_predictor_leapfrog(Tscal dt) {
     const u32 ixyz            = pdl.get_field_idx<Tvec>("xyz");
     const u32 ivxyz           = pdl.get_field_idx<Tvec>("vxyz");
     const u32 iaxyz           = pdl.get_field_idx<Tvec>("axyz");
-    const u32 iwall_flag      = pdl.get_field_idx<u32>("wall_flag");
 
     const bool has_uint = solver_config.has_field_uint();
     const u32 iuint     = has_uint ? pdl.get_field_idx<Tscal>("uint") : 0;
@@ -800,31 +502,25 @@ void shammodels::gsph::Solver<Tvec, Kern>::do_predictor_leapfrog(Tscal dt) {
 
     Tscal half_dt = dt / 2;
 
-    // Predictor step with wall particle skip
-    // Wall particles (wall_flag != 0) are boundary particles and should not be time integrated
+    // Predictor step: leapfrog kick-drift-kick
     scheduler().for_each_patchdata_nonempty([&](const Patch p, PatchDataLayer &pdat) {
         u32 cnt = pdat.get_obj_cnt();
         if (cnt == 0)
             return;
 
-        auto &xyz_field       = pdat.get_field<Tvec>(ixyz);
-        auto &vxyz_field      = pdat.get_field<Tvec>(ivxyz);
-        auto &axyz_field      = pdat.get_field<Tvec>(iaxyz);
-        auto &wall_flag_field = pdat.get_field<u32>(iwall_flag);
+        auto &xyz_field  = pdat.get_field<Tvec>(ixyz);
+        auto &vxyz_field = pdat.get_field<Tvec>(ivxyz);
+        auto &axyz_field = pdat.get_field<Tvec>(iaxyz);
 
         auto dev_sched = shamsys::instance::get_compute_scheduler_ptr();
 
         // Forward euler: v += a*dt/2, x += v*dt, v += a*dt/2 (leapfrog kick-drift-kick)
         sham::kernel_call(
             dev_sched->get_queue(),
-            sham::MultiRef{axyz_field.get_buf(), wall_flag_field.get_buf()},
+            sham::MultiRef{axyz_field.get_buf()},
             sham::MultiRef{xyz_field.get_buf(), vxyz_field.get_buf()},
             cnt,
-            [half_dt, dt](u32 i, const Tvec *axyz, const u32 *wall_flag, Tvec *xyz, Tvec *vxyz) {
-                // Skip wall particles (not time integrated)
-                if (wall_flag[i] != 0)
-                    return;
-
+            [half_dt, dt](u32 i, const Tvec *axyz, Tvec *xyz, Tvec *vxyz) {
                 // Kick: v += a*dt/2
                 vxyz[i] += axyz[i] * half_dt;
                 // Drift: x += v*dt
@@ -840,15 +536,11 @@ void shammodels::gsph::Solver<Tvec, Kern>::do_predictor_leapfrog(Tscal dt) {
 
             sham::kernel_call(
                 dev_sched->get_queue(),
-                sham::MultiRef{duint_field.get_buf(), wall_flag_field.get_buf()},
+                sham::MultiRef{duint_field.get_buf()},
                 sham::MultiRef{uint_field.get_buf()},
                 cnt,
-                [half_dt, dt](u32 i, const Tscal *duint, const u32 *wall_flag, Tscal *uint) {
-                    // Skip wall particles
-                    if (wall_flag[i] != 0)
-                        return;
-
-                    // u += du*dt/2 + du*dt/2 = du*dt
+                [dt](u32 i, const Tscal *duint, Tscal *uint) {
+                    // u += du*dt
                     uint[i] += duint[i] * dt;
                 });
         }
@@ -883,19 +575,17 @@ void shammodels::gsph::Solver<Tvec, Kern>::communicate_merge_ghosts_fields() {
     const u32 ixyz            = pdl.get_field_idx<Tvec>("xyz");
     const u32 ivxyz           = pdl.get_field_idx<Tvec>("vxyz");
     const u32 ihpart          = pdl.get_field_idx<Tscal>("hpart");
-    const u32 iwall_flag      = pdl.get_field_idx<u32>("wall_flag");
 
     const bool has_uint = solver_config.has_field_uint();
     const u32 iuint     = has_uint ? pdl.get_field_idx<Tscal>("uint") : 0;
 
     auto ghost_layout_ptr                               = storage.ghost_layout.get();
     shamrock::patch::PatchDataLayerLayout &ghost_layout = shambase::get_check_ref(ghost_layout_ptr);
-    u32 ihpart_interf     = ghost_layout.get_field_idx<Tscal>("hpart");
-    u32 ivxyz_interf      = ghost_layout.get_field_idx<Tvec>("vxyz");
-    u32 iomega_interf     = ghost_layout.get_field_idx<Tscal>("omega");
-    u32 idensity_interf   = ghost_layout.get_field_idx<Tscal>("density");
-    u32 iwall_flag_interf = ghost_layout.get_field_idx<u32>("wall_flag");
-    u32 iuint_interf      = has_uint ? ghost_layout.get_field_idx<Tscal>("uint") : 0;
+    u32 ihpart_interf   = ghost_layout.get_field_idx<Tscal>("hpart");
+    u32 ivxyz_interf    = ghost_layout.get_field_idx<Tvec>("vxyz");
+    u32 iomega_interf   = ghost_layout.get_field_idx<Tscal>("omega");
+    u32 idensity_interf = ghost_layout.get_field_idx<Tscal>("density");
+    u32 iuint_interf    = has_uint ? ghost_layout.get_field_idx<Tscal>("uint") : 0;
 
     using InterfaceBuildInfos = typename sph::BasicSPHGhostHandler<Tvec>::InterfaceBuildInfos;
 
@@ -932,8 +622,6 @@ void shammodels::gsph::Solver<Tvec, Kern>::communicate_merge_ghosts_fields() {
                 buf_idx, cnt, pdat.get_field<Tvec>(ivxyz_interf));
             sender_omega.append_subset_to(buf_idx, cnt, pdat.get_field<Tscal>(iomega_interf));
             sender_density.append_subset_to(buf_idx, cnt, pdat.get_field<Tscal>(idensity_interf));
-            sender_patch.get_field<u32>(iwall_flag)
-                .append_subset_to(buf_idx, cnt, pdat.get_field<u32>(iwall_flag_interf));
 
             if (has_uint) {
                 sender_patch.get_field<Tscal>(iuint).append_subset_to(
@@ -984,7 +672,6 @@ void shammodels::gsph::Solver<Tvec, Kern>::communicate_merge_ghosts_fields() {
                 pdat_new.get_field<Tvec>(ivxyz_interf).insert(pdat.get_field<Tvec>(ivxyz));
                 pdat_new.get_field<Tscal>(iomega_interf).insert(cur_omega);
                 pdat_new.get_field<Tscal>(idensity_interf).insert(cur_density);
-                pdat_new.get_field<u32>(iwall_flag_interf).insert(pdat.get_field<u32>(iwall_flag));
 
                 if (has_uint) {
                     pdat_new.get_field<Tscal>(iuint_interf).insert(pdat.get_field<Tscal>(iuint));
@@ -1013,7 +700,6 @@ void shammodels::gsph::Solver<Tvec, Kern>::compute_omega() {
     using namespace shamrock;
     using namespace shamrock::patch;
 
-    auto dev_sched    = shamsys::instance::get_compute_scheduler_ptr();
     const Tscal pmass = solver_config.gpart_mass;
 
     // Verify particle mass is valid
@@ -1027,183 +713,185 @@ void shammodels::gsph::Solver<Tvec, Kern>::compute_omega() {
     shamrock::solvergraph::Field<Tscal> &density_field = shambase::get_check_ref(storage.density);
 
     // Create sizes directly from scheduler to ensure we have all patches
-    shambase::DistributedData<u32> sizes;
+    std::shared_ptr<shamrock::solvergraph::Indexes<u32>> sizes
+        = std::make_shared<shamrock::solvergraph::Indexes<u32>>("sizes", "N");
     scheduler().for_each_patchdata_nonempty([&](const Patch p, PatchDataLayer &pdat) {
-        sizes.add_obj(p.id_patch, pdat.get_obj_cnt());
+        sizes->indexes.add_obj(p.id_patch, pdat.get_obj_cnt());
     });
 
     // Ensure fields are allocated for all patches with correct sizes
-    omega_field.ensure_sizes(sizes);
-    density_field.ensure_sizes(sizes);
-
-    // Compute density and omega via SPH summation using neighbor cache
-    // Reference: g_pre_interaction.cpp from sphcode
-    // dens_i = sum_j m_j * W(r_ij, h_i)
-    // dh_dens_i = sum_j m_j * dhW(r_ij, h_i)
-    // omega = 1 / (1 + h/(D*rho) * dh_rho)
-
-    auto &merged_xyzh     = storage.merged_xyzh.get();
-    constexpr Tscal Rker2 = Kernel::Rkern * Kernel::Rkern;
-    constexpr u32 DIM     = 3; // 3D
-
-    // Configuration for h iteration
-    constexpr u32 MAX_H_ITER   = 30;          // Maximum iterations for h convergence
-    constexpr Tscal H_TOL      = Tscal(1e-3); // Convergence tolerance for h
-    constexpr Tscal H_EVOL_MAX = Tscal(1.2);  // Max h change per iteration
+    omega_field.ensure_sizes(sizes->indexes);
+    density_field.ensure_sizes(sizes->indexes);
 
     // Get patchdata layout for hpart field
     PatchDataLayerLayout &pdl = scheduler().pdl();
     const u32 ihpart          = pdl.get_field_idx<Tscal>("hpart");
 
+    // =========================================================================
+    // OUTER-LOOP SMOOTHING LENGTH ITERATION (FIX FOR CACHE CONSISTENCY BUG)
+    // =========================================================================
+    // The original implementation had an inner-loop Newton-Raphson iteration
+    // inside a GPU kernel. This caused issues because:
+    // 1. Neighbor cache was built with OLD h values (+ 10% tolerance)
+    // 2. Inner iteration could change h by more than 10%
+    // 3. Particles that should be neighbors weren't found in the cache
+    // 4. Result: underestimated density at discontinuities -> wrong forces
+    //
+    // The fix uses the SPH-style outer-loop approach:
+    // 1. Create GSPH IterateSmoothingLengthDensity module (ONE step per call)
+    // 2. Wrap in LoopSmoothingLengthIter for multiple iterations
+    // 3. If h grows beyond tolerance, signal for cache rebuild
+    // =========================================================================
+
+    auto &merged_xyzh = storage.merged_xyzh.get();
+
+    // Create field references for the iteration module
+    // Position spans (from merged xyzh)
+    std::shared_ptr<shamrock::solvergraph::FieldRefs<Tvec>> pos_merged
+        = std::make_shared<shamrock::solvergraph::FieldRefs<Tvec>>("pos", "r");
+    shamrock::solvergraph::DDPatchDataFieldRef<Tvec> pos_refs = {};
+
+    // Old h spans (from merged xyzh - read only during iteration)
+    std::shared_ptr<shamrock::solvergraph::FieldRefs<Tscal>> hold
+        = std::make_shared<shamrock::solvergraph::FieldRefs<Tscal>>("h_old", "h^{old}");
+    shamrock::solvergraph::DDPatchDataFieldRef<Tscal> hold_refs = {};
+
+    // New h spans (local patchdata - written during iteration)
+    std::shared_ptr<shamrock::solvergraph::FieldRefs<Tscal>> hnew
+        = std::make_shared<shamrock::solvergraph::FieldRefs<Tscal>>("h_new", "h^{new}");
+    shamrock::solvergraph::DDPatchDataFieldRef<Tscal> hnew_refs = {};
+
+    // Populate field references
+    scheduler().for_each_patchdata_nonempty([&](const Patch p, PatchDataLayer &pdat) {
+        auto &mfield = merged_xyzh.get(p.id_patch);
+
+        // Position from merged data (includes ghosts for neighbor search)
+        pos_refs.add_obj(p.id_patch, std::ref(mfield.template get_field<Tvec>(0)));
+
+        // h_old from merged data
+        hold_refs.add_obj(p.id_patch, std::ref(mfield.template get_field<Tscal>(1)));
+
+        // h_new to local patchdata (this is updated during iteration)
+        hnew_refs.add_obj(p.id_patch, std::ref(pdat.get_field<Tscal>(ihpart)));
+    });
+
+    pos_merged->set_refs(pos_refs);
+    hold->set_refs(hold_refs);
+    hnew->set_refs(hnew_refs);
+
+    // Initialize hnew with hold values
+    auto dev_sched = shamsys::instance::get_compute_scheduler_ptr();
     scheduler().for_each_patchdata_nonempty([&](const Patch p, PatchDataLayer &pdat) {
         u32 cnt = pdat.get_obj_cnt();
         if (cnt == 0)
             return;
 
-        // Get merged position/h buffer (includes ghosts for neighbor lookup)
-        auto &mfield                                = merged_xyzh.get(p.id_patch);
-        sham::DeviceBuffer<Tvec> &buf_xyz           = mfield.template get_field_buf_ref<Tvec>(0);
-        sham::DeviceBuffer<Tscal> &buf_hpart_merged = mfield.template get_field_buf_ref<Tscal>(1);
+        auto &mfield           = merged_xyzh.get(p.id_patch);
+        auto &buf_hpart_merged = mfield.template get_field_buf_ref<Tscal>(1);
+        auto &buf_hpart_local  = pdat.get_field_buf_ref<Tscal>(ihpart);
 
-        // Get patchdata hpart field for writing (this is the source of truth)
-        sham::DeviceBuffer<Tscal> &buf_hpart_local = pdat.get_field_buf_ref<Tscal>(ihpart);
-
-        auto &omega_buf   = omega_field.get_field(p.id_patch).get_buf();
-        auto &density_buf = density_field.get_field(p.id_patch).get_buf();
-
-        // Get neighbor cache
-        tree::ObjectCache &pcache
-            = shambase::get_check_ref(storage.neigh_cache).get_cache(p.id_patch);
-
-        sham::DeviceQueue &q = dev_sched->get_queue();
-        sham::EventList depends_list;
-
-        auto xyz          = buf_xyz.get_read_access(depends_list);
-        auto hpart_merged = buf_hpart_merged.get_read_access(depends_list);
-        auto hpart_local  = buf_hpart_local.get_write_access(depends_list);
-        auto omega        = omega_buf.get_write_access(depends_list);
-        auto density      = density_buf.get_write_access(depends_list);
-        auto ploop_ptrs   = pcache.get_read_access(depends_list);
-
-        auto e = q.submit(depends_list, [&](sycl::handler &cgh) {
-            tree::ObjectCacheIterator particle_looper(ploop_ptrs);
-
-            shambase::parallel_for(cgh, cnt, "compute_density_omega_with_h_iter", [=](u64 gid) {
-                u32 id_a = (u32) gid;
-
-                const Tvec xyz_a = xyz[id_a];
-                Tscal h_a        = hpart_merged[id_a]; // Start with current h
-
-                // Newton-Raphson iteration to find h that satisfies rho_sum = rho_h(m, h)
-                // rho_h = m * (hfact/h)^3
-                // Target: find h such that SPH summation density matches rho_h
-                for (u32 iter = 0; iter < MAX_H_ITER; iter++) {
-                    const Tscal h_old = h_a;
-                    const Tscal dint  = h_a * h_a * Rker2;
-
-                    // SPH density summation
-                    Tscal rho_sum = Tscal(0);
-                    Tscal sumdWdh = Tscal(0);
-
-                    particle_looper.for_each_object(id_a, [&](u32 id_b) {
-                        const Tvec dr    = xyz_a - xyz[id_b];
-                        const Tscal rab2 = sycl::dot(dr, dr);
-
-                        if (rab2 >= dint) {
-                            return;
-                        }
-
-                        const Tscal rab = sycl::sqrt(rab2);
-
-                        // SPH density summation: rho = sum_j m_j W(r_ij, h_i)
-                        rho_sum += pmass * Kernel::W_3d(rab, h_a);
-
-                        // Derivative w.r.t. h: dhW_3d (kernel provides this)
-                        sumdWdh += pmass * Kernel::dhW_3d(rab, h_a);
-                    });
-
-                    // Target density from h: rho_h = m * (hfact/h)^3
-                    const Tscal hfact = Kernel::hfactd;
-                    const Tscal rho_h = pmass * (hfact / h_a) * (hfact / h_a) * (hfact / h_a);
-
-                    // Newton-Raphson update for h
-                    // f(h) = rho_sum - rho_h = 0
-                    // df/dh = sumdWdh + 3*rho_h/h  (since drho_h/dh = -3*rho_h/h)
-                    const Tscal f_val  = rho_sum - rho_h;
-                    const Tscal df_val = sumdWdh + Tscal(DIM) * rho_h / h_a;
-
-                    if (sycl::fabs(df_val) > Tscal(1e-30)) {
-                        Tscal new_h = h_a - f_val / df_val;
-
-                        // Clamp h change per iteration
-                        if (new_h < h_a / H_EVOL_MAX) {
-                            new_h = h_a / H_EVOL_MAX;
-                        }
-                        if (new_h > h_a * H_EVOL_MAX) {
-                            new_h = h_a * H_EVOL_MAX;
-                        }
-
-                        // Ensure h is positive
-                        new_h = sycl::max(new_h, Tscal(1e-10));
-
-                        h_a = new_h;
-                    }
-
-                    // Check convergence
-                    if (sycl::fabs(h_a - h_old) / h_old < H_TOL) {
-                        break;
-                    }
-                }
-
-                // Final density computation with converged h
-                const Tscal dint_final = h_a * h_a * Rker2;
-                Tscal dens             = Tscal(0);
-                Tscal dh_dens          = Tscal(0);
-
-                particle_looper.for_each_object(id_a, [&](u32 id_b) {
-                    const Tvec dr    = xyz_a - xyz[id_b];
-                    const Tscal rab2 = sycl::dot(dr, dr);
-
-                    if (rab2 >= dint_final) {
-                        return;
-                    }
-
-                    const Tscal rab = sycl::sqrt(rab2);
-
-                    dens += pmass * Kernel::W_3d(rab, h_a);
-
-                    // For omega computation
-                    Tscal dW_dr = Kernel::dW_3d(rab, h_a);
-                    Tscal dhW   = -dW_dr * rab / h_a - Tscal(DIM) * Kernel::W_3d(rab, h_a) / h_a;
-                    dh_dens += pmass * dhW;
-                });
-
-                // Store updated h to patchdata
-                hpart_local[id_a] = h_a;
-
-                // Store density
-                density[id_a] = dens;
-
-                // Grad-h correction factor: omega = 1 / (1 + h/(D*rho) * dh_rho)
-                Tscal omega_val = Tscal(1);
-                if (dens > Tscal(1e-30)) {
-                    omega_val = Tscal(1) / (Tscal(1) + h_a / (Tscal(DIM) * dens) * dh_dens);
-                    omega_val = sycl::clamp(omega_val, Tscal(0.5), Tscal(1.5));
-                }
-                omega[id_a] = omega_val;
+        sham::kernel_call(
+            dev_sched->get_queue(),
+            sham::MultiRef{buf_hpart_merged},
+            sham::MultiRef{buf_hpart_local},
+            cnt,
+            [](u32 i, const Tscal *h_old, Tscal *h_new) {
+                h_new[i] = h_old[i];
             });
-        });
-
-        buf_xyz.complete_event_state(e);
-        buf_hpart_merged.complete_event_state(e);
-        buf_hpart_local.complete_event_state(e);
-        omega_buf.complete_event_state(e);
-        density_buf.complete_event_state(e);
-
-        sham::EventList resulting_events;
-        resulting_events.add_event(e);
-        pcache.complete_event_state(resulting_events);
     });
+
+    // Create epsilon field for convergence tracking
+    shamrock::SchedulerUtility utility(scheduler());
+    ComputeField<Tscal> _epsilon_h = utility.make_compute_field<Tscal>("epsilon_h", 1);
+
+    // Initialize epsilon to large value (not converged)
+    scheduler().for_each_patchdata_nonempty([&](const Patch p, PatchDataLayer &pdat) {
+        u32 cnt = pdat.get_obj_cnt();
+        if (cnt == 0)
+            return;
+
+        auto &eps_buf = _epsilon_h.get_buf_check(p.id_patch);
+
+        sham::kernel_call(
+            dev_sched->get_queue(),
+            sham::MultiRef{},
+            sham::MultiRef{eps_buf},
+            cnt,
+            [](u32 i, Tscal *eps) {
+                eps[i] = Tscal(1.0); // Start with large epsilon
+            });
+    });
+
+    // Create epsilon field references
+    std::shared_ptr<shamrock::solvergraph::FieldRefs<Tscal>> eps_h
+        = std::make_shared<shamrock::solvergraph::FieldRefs<Tscal>>("eps_h", "\\epsilon_h");
+    shamrock::solvergraph::DDPatchDataFieldRef<Tscal> eps_h_refs = {};
+    scheduler().for_each_patchdata_nonempty([&](const Patch p, PatchDataLayer &pdat) {
+        auto &field = _epsilon_h.get_field(p.id_patch);
+        eps_h_refs.add_obj(p.id_patch, std::ref(field));
+    });
+    eps_h->set_refs(eps_h_refs);
+
+    // Create the GSPH IterateSmoothingLengthDensity module
+    std::shared_ptr<gsph::modules::IterateSmoothingLengthDensity<Tvec, Kernel>> smth_h_iter
+        = std::make_shared<gsph::modules::IterateSmoothingLengthDensity<Tvec, Kernel>>(
+            solver_config.gpart_mass,
+            solver_config.htol_up_coarse_cycle,
+            solver_config.htol_up_fine_cycle);
+
+    smth_h_iter->set_edges(
+        sizes,
+        storage.neigh_cache,
+        pos_merged,
+        hold,
+        hnew,
+        eps_h,
+        storage.density,
+        storage.omega);
+
+    // Create convergence flag
+    std::shared_ptr<shamrock::solvergraph::ScalarEdge<bool>> is_converged
+        = std::make_shared<shamrock::solvergraph::ScalarEdge<bool>>("is_converged", "converged");
+
+    // Use LoopSmoothingLengthIter from SPH module for outer loop iteration
+    shammodels::sph::modules::LoopSmoothingLengthIter<Tvec> loop_smth_h_iter(
+        smth_h_iter, solver_config.epsilon_h, solver_config.h_iter_per_subcycles, false);
+    loop_smth_h_iter.set_edges(eps_h, is_converged);
+
+    // Run the outer loop iteration
+    loop_smth_h_iter.evaluate();
+
+    // Check convergence
+    if (!is_converged->value) {
+        // Get convergence statistics
+        Tscal local_max_eps = shamrock::solvergraph::get_rank_max(*eps_h);
+        Tscal global_max_eps = shamalgs::collective::allreduce_max(local_max_eps);
+
+        // Count particles that need cache rebuild (eps == -1)
+        u64 cnt_unconverged = 0;
+        scheduler().for_each_patchdata_nonempty([&](const Patch p, PatchDataLayer &pdat) {
+            auto res = _epsilon_h.get_field(p.id_patch).get_ids_buf_where([](auto access, u32 id) {
+                return access[id] < Tscal(0);
+            });
+            cnt_unconverged += std::get<1>(res);
+        });
+        u64 global_cnt_unconverged = shamalgs::collective::allreduce_sum(cnt_unconverged);
+
+        if (shamcomm::world_rank() == 0) {
+            if (global_cnt_unconverged > 0) {
+                logger::warn_ln(
+                    "GSPH",
+                    "Smoothing length iteration: ",
+                    global_cnt_unconverged,
+                    " particles need cache rebuild (h grew beyond tolerance)");
+            } else {
+                logger::warn_ln(
+                    "GSPH",
+                    "Smoothing length iteration did not converge, max eps =",
+                    global_max_eps);
+            }
+        }
+    }
 }
 
 template<class Tvec, template<class> class Kern>
@@ -1495,41 +1183,30 @@ bool shammodels::gsph::Solver<Tvec, Kern>::apply_corrector(Tscal dt, u64 Npart_a
 
     shamrock::patch::PatchDataLayerLayout &pdl = scheduler().pdl();
 
-    const u32 ivxyz      = pdl.get_field_idx<Tvec>("vxyz");
-    const u32 iaxyz      = pdl.get_field_idx<Tvec>("axyz");
-    const u32 iwall_flag = pdl.get_field_idx<u32>("wall_flag");
+    const u32 ivxyz = pdl.get_field_idx<Tvec>("vxyz");
+    const u32 iaxyz = pdl.get_field_idx<Tvec>("axyz");
 
     Tscal half_dt = Tscal{0.5} * dt;
 
     // Corrector: v = v + 0.5*(a_new - a_old)*dt
-    // Skip wall particles (not time integrated)
     scheduler().for_each_patchdata_nonempty(
         [&](const shamrock::patch::Patch p, shamrock::patch::PatchDataLayer &pdat) {
             u32 cnt = pdat.get_obj_cnt();
             if (cnt == 0)
                 return;
 
-            auto &vxyz      = pdat.get_field<Tvec>(ivxyz);
-            auto &axyz      = pdat.get_field<Tvec>(iaxyz);
-            auto &wall_flag = pdat.get_field<u32>(iwall_flag);
-            auto &old_axyz  = storage.old_axyz.get().get_field(p.id_patch);
+            auto &vxyz     = pdat.get_field<Tvec>(ivxyz);
+            auto &axyz     = pdat.get_field<Tvec>(iaxyz);
+            auto &old_axyz = storage.old_axyz.get().get_field(p.id_patch);
 
             auto dev_sched = shamsys::instance::get_compute_scheduler_ptr();
 
             sham::kernel_call(
                 dev_sched->get_queue(),
-                sham::MultiRef{axyz.get_buf(), old_axyz.get_buf(), wall_flag.get_buf()},
+                sham::MultiRef{axyz.get_buf(), old_axyz.get_buf()},
                 sham::MultiRef{vxyz.get_buf()},
                 cnt,
-                [half_dt](
-                    u32 i,
-                    const Tvec *axyz_new,
-                    const Tvec *axyz_old,
-                    const u32 *wall_flag,
-                    Tvec *vxyz) {
-                    // Skip wall particles
-                    if (wall_flag[i] != 0)
-                        return;
+                [half_dt](u32 i, const Tvec *axyz_new, const Tvec *axyz_old, Tvec *vxyz) {
                     vxyz[i] += half_dt * (axyz_new[i] - axyz_old[i]);
                 });
         });
@@ -1546,25 +1223,16 @@ bool shammodels::gsph::Solver<Tvec, Kern>::apply_corrector(Tscal dt, u64 Npart_a
 
                 auto &uint_field = pdat.get_field<Tscal>(iuint);
                 auto &duint      = pdat.get_field<Tscal>(iduint);
-                auto &wall_flag  = pdat.get_field<u32>(iwall_flag);
                 auto &old_duint  = storage.old_duint.get().get_field(p.id_patch);
 
                 auto dev_sched = shamsys::instance::get_compute_scheduler_ptr();
 
                 sham::kernel_call(
                     dev_sched->get_queue(),
-                    sham::MultiRef{duint.get_buf(), old_duint.get_buf(), wall_flag.get_buf()},
+                    sham::MultiRef{duint.get_buf(), old_duint.get_buf()},
                     sham::MultiRef{uint_field.get_buf()},
                     cnt,
-                    [half_dt](
-                        u32 i,
-                        const Tscal *duint_new,
-                        const Tscal *duint_old,
-                        const u32 *wall_flag,
-                        Tscal *uint) {
-                        // Skip wall particles
-                        if (wall_flag[i] != 0)
-                            return;
+                    [half_dt](u32 i, const Tscal *duint_new, const Tscal *duint_old, Tscal *uint) {
                         uint[i] += half_dt * (duint_new[i] - duint_old[i]);
                     });
             });
@@ -1643,12 +1311,6 @@ shammodels::gsph::TimestepLog shammodels::gsph::Solver<Tvec, Kern>::evolve_once(
     // Build serial patch tree first (needed for boundary application)
     gen_serial_patch_tree();
     apply_position_boundary(t_current + dt);
-
-    // STEP 2b: DYNAMIC WALL PARTICLES - update mirror particles at boundaries
-    // This must be done after boundary application and before tree building
-    if (solver_config.enable_dynamic_walls) {
-        update_wall_particles(solver_config.wall_num_layers, solver_config.wall_flags);
-    }
 
     // STEP 3: TREE BUILD - build trees on NEW positions
     // Generate ghost handler for the new positions
@@ -1730,6 +1392,33 @@ shammodels::gsph::TimestepLog shammodels::gsph::Solver<Tvec, Kern>::evolve_once(
     log.tcompute = tstep.elasped_sec();
 
     return log;
+}
+
+// Checkpoint methods
+template<class Tvec, template<class> class SPHKernel>
+void shammodels::gsph::Solver<Tvec, SPHKernel>::write_checkpoint(const std::string &basename) {
+    Tscal time = solver_config.get_time();
+    u64 step   = solve_logs.get_iteration_count();
+
+    modules::GSPHCheckpoint<Tvec, SPHKernel> checkpoint(context, solver_config);
+    checkpoint.write_checkpoint(basename, time, step);
+}
+
+template<class Tvec, template<class> class SPHKernel>
+void shammodels::gsph::Solver<Tvec, SPHKernel>::read_checkpoint(const std::string &basename) {
+    Tscal time;
+    u64 step;
+
+    modules::GSPHCheckpoint<Tvec, SPHKernel> checkpoint(context, solver_config);
+    checkpoint.read_checkpoint(basename, time, step);
+
+    solver_config.set_time(time);
+    solve_logs.step_count = step;
+}
+
+template<class Tvec, template<class> class SPHKernel>
+bool shammodels::gsph::Solver<Tvec, SPHKernel>::checkpoint_exists(const std::string &basename) {
+    return modules::GSPHCheckpoint<Tvec, SPHKernel>::checkpoint_exists(basename);
 }
 
 // Template instantiations
