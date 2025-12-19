@@ -9,7 +9,7 @@
 
 /**
  * @file UpdateDerivs.cpp
- * @author Guo (guo.yansong@optimind.tech)
+ * @author Guo (guo.yansong.ngy@gmail.com)
  * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr) --no git blame--
  * @brief Implementation of GSPH derivative update module
  *
