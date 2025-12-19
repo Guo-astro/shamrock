@@ -50,6 +50,10 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs() {
         update_derivs_iterative(*v);
     } else if (HLLC *v = std::get_if<HLLC>(&cfg_riemann.config)) {
         update_derivs_hllc(*v);
+    } else if (Exact *v = std::get_if<Exact>(&cfg_riemann.config)) {
+        shambase::throw_unimplemented("Exact Riemann solver not yet implemented");
+    } else if (Roe *v = std::get_if<Roe>(&cfg_riemann.config)) {
+        shambase::throw_unimplemented("Roe Riemann solver not yet implemented");
     } else {
         shambase::throw_unimplemented("Unknown Riemann solver type");
     }
@@ -251,12 +255,11 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_ite
 
                     sum_axyz -= coeff * r_ab_unit;
 
-                    // GSPH energy equation (Cha & Whitworth 2003, Eq. 11)
-                    // du_a/dt = -sum_b m_b * p* * (v* - v_a) * nabla_W_a / (rho_a^2 * omega_a)
-                    // NOTE: Energy equation is NOT symmetric - only uses particle a's kernel gradient
+                    // GSPH energy equation (Cha & Whitworth 2003)
+                    // du_a/dt = -dot(f, v* - v_a) where f is same force as momentum
+                    // Uses symmetric form: same coefficient as momentum equation
                     if (do_energy) {
-                        const Tscal energy_coeff = pmass * p_star * Fab_a / (omega_a * rho_a_sq);
-                        sum_du_a -= energy_coeff * (v_star - u_a_proj);
+                        sum_du_a -= coeff * (v_star - u_a_proj);
                     }
                 });
 
@@ -473,12 +476,11 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_hll
 
                     sum_axyz -= coeff * r_ab_unit;
 
-                    // GSPH energy equation (Cha & Whitworth 2003, Eq. 11)
-                    // du_a/dt = -sum_b m_b * p* * (v* - v_a) * nabla_W_a / (rho_a^2 * omega_a)
-                    // NOTE: Energy equation is NOT symmetric - only uses particle a's kernel gradient
+                    // GSPH energy equation (Cha & Whitworth 2003)
+                    // du_a/dt = -dot(f, v* - v_a) where f is same force as momentum
+                    // Uses symmetric form: same coefficient as momentum equation
                     if (do_energy) {
-                        const Tscal energy_coeff = pmass * p_star * Fab_a / (omega_a * rho_a_sq);
-                        sum_du_a -= energy_coeff * (v_star - u_a_proj);
+                        sum_du_a -= coeff * (v_star - u_a_proj);
                     }
                 });
 
