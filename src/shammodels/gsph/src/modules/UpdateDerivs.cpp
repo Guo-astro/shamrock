@@ -432,10 +432,9 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_ite
 
                     sum_axyz -= coeff * r_ab_unit;
 
-                    // GSPH energy equation (matching reference g_fluid_force.cpp)
-                    // du_a/dt = -sum_b f · (v* - v_a)
-                    // where v* = vstar * e_ij (interface velocity in pair direction)
-                    // Since f = coeff * e_ij, we have: du/dt = -coeff * (vstar - u_a_proj)
+                    // GSPH energy equation (Cha & Whitworth 2003)
+                    // du_a/dt = -dot(f, v* - v_a) where f is same force as momentum
+                    // Uses symmetric form: same coefficient as momentum equation
                     if (do_energy) {
                         sum_du_a -= coeff * (v_star - u_a_proj);
                     }
@@ -653,8 +652,9 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_hll
 
                     sum_axyz -= coeff * r_ab_unit;
 
-                    // GSPH energy equation (matching reference g_fluid_force.cpp)
-                    // du_a/dt = -sum_b f · (v* - v_a)
+                    // GSPH energy equation (Cha & Whitworth 2003)
+                    // du_a/dt = -dot(f, v* - v_a) where f is same force as momentum
+                    // Uses symmetric form: same coefficient as momentum equation
                     if (do_energy) {
                         sum_du_a -= coeff * (v_star - u_a_proj);
                     }
