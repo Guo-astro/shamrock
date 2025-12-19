@@ -9,8 +9,8 @@
 
 /**
  * @file UpdateDerivs.cpp
- * @author Guo (guo.yansong@optimind.tech)
- * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr)
+ * @author Guo (guo.yansong.ngy@gmail.com)
+ * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr) --no git blame--
  * @brief Implementation of GSPH derivative update module
  *
  * This file implements the core GSPH algorithm: for each particle pair,
