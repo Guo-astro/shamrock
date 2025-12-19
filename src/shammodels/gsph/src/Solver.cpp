@@ -118,14 +118,12 @@ void shammodels::gsph::Solver<Tvec, Kern>::gen_ghost_handler(Tscal time_val) {
     using CfgClass = sph::BasicSPHGhostHandlerConfig<Tvec>;
     using BCConfig = typename CfgClass::Variant;
 
-    using BCFree             = typename CfgClass::Free;
-    using BCPeriodic         = typename CfgClass::Periodic;
-    using BCShearingPeriodic = typename CfgClass::ShearingPeriodic;
+    using BCFree     = typename CfgClass::Free;
+    using BCPeriodic = typename CfgClass::Periodic;
 
-    using SolverConfigBC           = typename Config::BCConfig;
-    using SolverBCFree             = typename SolverConfigBC::Free;
-    using SolverBCPeriodic         = typename SolverConfigBC::Periodic;
-    using SolverBCShearingPeriodic = typename SolverConfigBC::ShearingPeriodic;
+    using SolverConfigBC   = typename Config::BCConfig;
+    using SolverBCFree     = typename SolverConfigBC::Free;
+    using SolverBCPeriodic = typename SolverConfigBC::Periodic;
 
     // Boundary condition selection - similar to SPH solver
     // Note: Wall boundaries use Periodic with dynamic wall particles
@@ -135,18 +133,6 @@ void shammodels::gsph::Solver<Tvec, Kern>::gen_ghost_handler(Tscal time_val) {
         SolverBCPeriodic *c
         = std::get_if<SolverBCPeriodic>(&solver_config.boundary_config.config)) {
         storage.ghost_handler.set(GhostHandle{scheduler(), BCPeriodic{}, storage.patch_rank_owner});
-    } else if (
-        SolverBCShearingPeriodic *c
-        = std::get_if<SolverBCShearingPeriodic>(&solver_config.boundary_config.config)) {
-        // Shearing periodic boundaries (Stone 2010) - reuse SPH implementation
-        storage.ghost_handler.set(
-            GhostHandle{
-                scheduler(),
-                BCShearingPeriodic{
-                    c->shear_base, c->shear_dir, c->shear_speed * time_val, c->shear_speed},
-                storage.patch_rank_owner});
-    } else {
-        shambase::throw_with_loc<std::runtime_error>("GSPH: Unsupported boundary condition type.");
     }
 }
 

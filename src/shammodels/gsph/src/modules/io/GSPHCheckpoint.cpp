@@ -16,7 +16,7 @@
 #include "shammodels/gsph/modules/io/GSPHCheckpoint.hpp"
 #include "shambase/exception.hpp"
 #include "shammath/sphkernels.hpp"
-#include "shamrock/patch/PatchDataLayout.hpp"
+#include "shamrock/patch/PatchDataLayerLayout.hpp"
 #include "shamsys/legacy/log.hpp"
 #include <filesystem>
 #include <fstream>
@@ -45,21 +45,26 @@ namespace shammodels::gsph::modules {
         // Solver configuration
         meta["config"]["gamma"]      = solver_config.gamma;
         meta["config"]["gpart_mass"] = solver_config.gpart_mass;
-        meta["config"]["cfl_cour"]   = solver_config.cfl_cour;
+        meta["config"]["cfl_cour"]   = solver_config.cfl_config.cfl_cour;
+        meta["config"]["cfl_force"]  = solver_config.cfl_config.cfl_force;
         meta["config"]["htol_up_coarse_cycle"] = solver_config.htol_up_coarse_cycle;
         meta["config"]["htol_up_fine_cycle"]   = solver_config.htol_up_fine_cycle;
 
-        // EOS type
-        if (solver_config.eos_config.is_adiabatic()) {
+        // EOS type - use variant get_if
+        using EOSAdiabatic = typename Config::EOSConfig::Adiabatic;
+        using EOSIsothermal = typename Config::EOSConfig::Isothermal;
+        if (std::get_if<EOSAdiabatic>(&solver_config.eos_config.config)) {
             meta["config"]["eos_type"] = "adiabatic";
-        } else if (solver_config.eos_config.is_isothermal()) {
+        } else if (std::get_if<EOSIsothermal>(&solver_config.eos_config.config)) {
             meta["config"]["eos_type"] = "isothermal";
         }
 
-        // Riemann solver type
-        if (solver_config.riemann_config.is_iterative()) {
+        // Riemann solver type - use variant get_if
+        using RiemannIterative = typename Config::RiemannConfig::Iterative;
+        using RiemannHLLC = typename Config::RiemannConfig::HLLC;
+        if (std::get_if<RiemannIterative>(&solver_config.riemann_config.config)) {
             meta["config"]["riemann_type"] = "iterative";
-        } else if (solver_config.riemann_config.is_hllc()) {
+        } else if (std::get_if<RiemannHLLC>(&solver_config.riemann_config.config)) {
             meta["config"]["riemann_type"] = "hllc";
         }
 
@@ -134,7 +139,7 @@ namespace shammodels::gsph::modules {
         std::vector<Tscal> all_uint;
         std::vector<Tscal> all_duint;
 
-        scheduler().for_each_patchdata_nonempty([&](Patch p, PatchDataLayer &pdat) {
+        scheduler().for_each_patchdata_nonempty([&](const shamrock::patch::Patch p, shamrock::patch::PatchDataLayer &pdat) {
             u64 cnt = pdat.get_obj_cnt();
 
             // Read data from device
@@ -233,13 +238,13 @@ namespace shammodels::gsph::modules {
 
         // For simplicity, load all particles into a single patch
         // In production, you'd want to distribute across patches based on position
-        scheduler().for_each_patchdata([&](Patch p, PatchDataLayer &pdat) {
+        scheduler().for_each_patch_data([&](u64 id_patch, Patch &p, PatchDataLayer &pdat) {
             pdat.resize(0); // Clear existing
         });
 
         // Get first patch and load data
         bool loaded = false;
-        scheduler().for_each_patchdata([&](Patch p, PatchDataLayer &pdat) {
+        scheduler().for_each_patch_data([&](u64 id_patch, Patch &p, PatchDataLayer &pdat) {
             if (loaded)
                 return;
 
@@ -268,7 +273,7 @@ namespace shammodels::gsph::modules {
         // Count total particles
         u64 total_count = 0;
         scheduler().for_each_patchdata_nonempty(
-            [&](Patch p, shamrock::patch::PatchDataLayer &pdat) {
+            [&](const shamrock::patch::Patch p, shamrock::patch::PatchDataLayer &pdat) {
                 total_count += pdat.get_obj_cnt();
             });
 

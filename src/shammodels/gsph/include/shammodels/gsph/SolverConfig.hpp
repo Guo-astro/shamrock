@@ -219,47 +219,11 @@ struct shammodels::gsph::SolverConfig {
 
     inline void set_boundary_free() { boundary_config.set_free(); }
     inline void set_boundary_periodic() { boundary_config.set_periodic(); }
-
-    /**
-     * @brief Set shearing periodic boundary conditions
-     *
-     * Implements shearing box boundaries (Stone 2010) for simulations
-     * of differentially rotating systems (e.g., accretion disks).
-     *
-     * @param shear_base Base vector for shear periodicity count
-     * @param shear_dir Direction of the shear velocity shift
-     * @param speed Shear velocity magnitude
-     */
-    inline void set_boundary_shearing_periodic(i32_3 shear_base, i32_3 shear_dir, Tscal speed) {
-        boundary_config.set_shearing_periodic(shear_base, shear_dir, speed);
-    }
-
-    /**
-     * @brief Set shearing periodic boundary conditions
-     *
-     * Implements shearing box boundaries (Stone 2010) for simulations
-     * of differentially rotating systems (e.g., accretion disks).
-     *
-     * @param shear_base Base vector for shear periodicity count
-     * @param shear_dir Direction of the shear velocity shift
-     * @param speed Shear velocity magnitude
-     */
-    inline void set_boundary_shearing_periodic(i32_3 shear_base, i32_3 shear_dir, Tscal speed) {
-        boundary_config.set_shearing_periodic(shear_base, shear_dir, speed);
-    }
-
-    /**
-     * @brief Set shearing periodic boundary conditions
-     *
-     * Implements shearing box boundaries (Stone 2010) for simulations
-     * of differentially rotating systems (e.g., accretion disks).
-     *
-     * @param shear_base Base vector for shear periodicity count
-     * @param shear_dir Direction of the shear velocity shift
-     * @param speed Shear velocity magnitude
-     */
-    inline void set_boundary_shearing_periodic(i32_3 shear_base, i32_3 shear_dir, Tscal speed) {
-        boundary_config.set_shearing_periodic(shear_base, shear_dir, speed);
+    /// Wall boundaries use dynamic walls with periodic BC
+    /// This sets up periodic boundaries with dynamic wall particles
+    inline void set_boundary_wall(u32 num_layers = 4, u32 flags = 0x03) {
+        boundary_config.set_periodic();
+        set_dynamic_walls(num_layers, flags);
     }
 
     //////////////////////////////////////////////////////////////////////////////////////////////
