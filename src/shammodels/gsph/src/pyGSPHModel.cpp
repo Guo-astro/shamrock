@@ -161,52 +161,6 @@ void add_gsph_instance(py::module &m, std::string name_config, std::string name_
         // Boundary config
         .def("set_boundary_free", &TConfig::set_boundary_free)
         .def("set_boundary_periodic", &TConfig::set_boundary_periodic)
-        .def(
-            "set_boundary_wall",
-            &TConfig::set_boundary_wall,
-            py::arg("num_layers") = 4,
-            py::arg("wall_flags") = 0x3F,
-            R"==(
-Set wall boundary condition.
-
-Creates "wall particles" beyond domain boundaries that mirror boundary particles.
-This provides proper neighbor support for particles near walls.
-
-Parameters
-----------
-num_layers : int
-    Number of wall particle layers beyond each boundary (default: 4)
-wall_flags : int
-    Bit flags for which walls to enable (default: 0x3F = all walls)
-    Bit 0: -x, Bit 1: +x, Bit 2: -y, Bit 3: +y, Bit 4: -z, Bit 5: +z
-)==")
-        .def(
-            "set_dynamic_walls",
-            &TConfig::set_dynamic_walls,
-            py::arg("num_layers") = 4,
-            py::arg("wall_flags") = 0x03,
-            R"==(
-Enable dynamic wall particles that update every timestep.
-
-Dynamic walls mirror boundary particles at each timestep, providing proper
-boundary support as the flow evolves. This is independent of the ghost
-boundary type, allowing mixed boundaries (e.g., periodic y/z with wall x).
-
-Parameters
-----------
-num_layers : int
-    Number of wall particle layers beyond each boundary (default: 4)
-wall_flags : int
-    Bit flags for which walls to enable (default: 0x03 = x walls only)
-    Bit 0: -x, Bit 1: +x, Bit 2: -y, Bit 3: +y, Bit 4: -z, Bit 5: +z
-
-Example
--------
-For a shock tube with walls in x-direction and periodic in y/z:
-    cfg.set_boundary_periodic()  # Ghost communication uses periodic
-    cfg.set_dynamic_walls(num_layers=4, wall_flags=0x03)  # x walls only
-)==")
-        .def("disable_dynamic_walls", &TConfig::disable_dynamic_walls)
         // External forces
         .def(
             "add_ext_force_point_mass",
@@ -292,47 +246,6 @@ For a shock tube with walls in x-direction and periodic in y/z:
         .def("get_total_part_count", &T::get_total_part_count)
         .def("total_mass_to_part_mass", &T::total_mass_to_part_mass)
         .def(
-            "create_wall_particles",
-            &T::create_wall_particles,
-            py::arg("num_layers") = 4,
-            py::arg("wall_flags") = 0x03,
-            R"==(
-    Create wall particles for boundary conditions.
-
-    Finds particles near each enabled boundary wall and creates mirror particles
-    on the other side. These wall particles provide neighbor support at boundaries
-    and are marked with wall_flag = 1 (not time-integrated).
-
-    Can be used with periodic boundaries for mixed boundary conditions
-    (e.g., wall in x, periodic in y/z for shock tube).
-
-    Must be called after:
-    - Particles are added (add_cube_fcc_3d, etc.)
-    - Internal energy is set (set_value_in_a_box for "uint")
-
-    Parameters
-    ----------
-    num_layers : int
-        Number of particle layers to mirror (default: 4)
-    wall_flags : int
-        Bit flags for which walls to create (default: 0x03 = x walls only)
-        Bit 0: -x, Bit 1: +x, Bit 2: -y, Bit 3: +y, Bit 4: -z, Bit 5: +z
-
-    Returns
-    -------
-    int
-        Number of wall particles created
-
-    Example
-    -------
-    >>> # Shock tube: wall in x, periodic in y/z
-    >>> cfg.set_boundary_periodic()  # For ghost communication in y/z
-    >>> model.set_solver_config(cfg)
-    >>> # ... add particles and set properties ...
-    >>> n_wall = model.create_wall_particles(num_layers=4, wall_flags=0x03)
-    >>> print(f"Created {n_wall} wall particles")
-)==")
-        .def(
             "set_value_in_a_box",
             [](T &self,
                std::string field_name,
@@ -368,7 +281,7 @@ For a shock tube with walls in x-direction and periodic in y/z:
     Parameters
     ----------
     field_name : str
-        Name of the field to set (e.g., "vxyz", "uint", "wall_flag")
+        Name of the field to set (e.g., "vxyz", "uint", "hpart")
     field_type : str
         Type of the field: "f64", "f64_3", or "u32"
     value : float, tuple, or int
@@ -382,8 +295,8 @@ For a shock tube with walls in x-direction and periodic in y/z:
 
     Examples
     --------
-    >>> # Set wall_flag=1 for particles in a region
-    >>> model.set_value_in_a_box("wall_flag", "u32", 1, (-1,-1,-1), (0,1,1))
+    >>> # Set velocity for particles in left half of domain
+    >>> model.set_value_in_a_box("vxyz", "f64_3", (0.0, 0.0, 0.0), (-1,-1,-1), (0,1,1))
 )==")
         .def(
             "set_value_in_sphere",
