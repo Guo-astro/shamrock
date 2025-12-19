@@ -9,7 +9,7 @@
 
 /**
  * @file GSPHCheckpoint.cpp
- * @author Guo (guo.yansong@optimind.tech)
+ * @author Guo (guo.yansong.ngy@gmail.com)
  * @brief Implementation of GSPH checkpoint/restart functionality
  */
 

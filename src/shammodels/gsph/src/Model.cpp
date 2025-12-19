@@ -9,7 +9,7 @@
 
 /**
  * @file Model.cpp
- * @author Guo (guo.yansong@optimind.tech)
+ * @author Guo (guo.yansong.ngy@gmail.com)
  * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr)
  * @brief GSPH Model implementation
  */

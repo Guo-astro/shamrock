@@ -11,7 +11,7 @@
 
 /**
  * @file GSPHCheckpoint.hpp
- * @author Guo (guo.yansong@optimind.tech)
+ * @author Guo (guo.yansong.ngy@gmail.com)
  * @brief Checkpoint/restart functionality for GSPH solver
  *
  * Provides checkpoint (dump) and restart functionality for GSPH simulations.

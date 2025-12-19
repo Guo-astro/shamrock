@@ -11,7 +11,7 @@
 
 /**
  * @file Solver.hpp
- * @author Guo Yansong (guo.yansong.ngy@gmail.com)
+ * @author Guo (guo.yansong.ngy@gmail.com)
  * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr)
  * @brief GSPH Solver class
  *

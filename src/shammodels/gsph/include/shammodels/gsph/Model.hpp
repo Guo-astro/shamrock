@@ -11,7 +11,7 @@
 
 /**
  * @file Model.hpp
- * @author Guo (guo.yansong@optimind.tech)
+ * @author Guo (guo.yansong.ngy@gmail.com)
  * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr)
  * @brief GSPH Model class - high-level interface for GSPH simulations
  *
