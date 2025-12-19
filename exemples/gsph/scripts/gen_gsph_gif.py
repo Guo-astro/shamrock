@@ -19,10 +19,10 @@ import os
 import sys
 import pyvista as pv
 
-# Import sod_analytical from same directory
-script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, script_dir)
-from sod_analytical import SodAnalytical
+# Import from shared analytical module
+exemples_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, exemples_dir)
+from common.analytical.riemann import SodAnalytical
 
 # Parameters
 gamma = 1.4

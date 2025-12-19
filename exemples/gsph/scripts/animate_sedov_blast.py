@@ -20,8 +20,10 @@ import sys
 import os
 from pathlib import Path
 
-# Import analytical solution
-from sod_analytical import SedovAnalytical
+# Import from shared analytical module
+exemples_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, exemples_dir)
+from common.analytical.riemann import SedovAnalytical
 
 # Try to import animation tools
 try:
