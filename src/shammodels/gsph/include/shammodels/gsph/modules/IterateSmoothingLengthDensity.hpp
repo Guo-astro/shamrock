@@ -11,7 +11,7 @@
 
 /**
  * @file IterateSmoothingLengthDensity.hpp
- * @author Guo (guo.yansong.ngy@gmail.com)
+ * @author Guo Yansong (guo.yansong.ngy@gmail.com)
  * @brief Declares the IterateSmoothingLengthDensity module for GSPH.
  *
  * This module performs ONE Newton-Raphson iteration step for the smoothing length,

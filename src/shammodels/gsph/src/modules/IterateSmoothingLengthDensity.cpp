@@ -9,7 +9,7 @@
 
 /**
  * @file IterateSmoothingLengthDensity.cpp
- * @author Guo (guo.yansong.ngy@gmail.com)
+ * @author Guo Yansong (guo.yansong.ngy@gmail.com)
  * @brief Implements the GSPH IterateSmoothingLengthDensity module.
  *
  * This module performs ONE Newton-Raphson iteration for smoothing length,
@@ -117,8 +117,8 @@ void IterateSmoothingLengthDensity<Tvec, SPHKernel>::_impl_evaluate_internal() {
 
             // Newton-Raphson step for h
             using namespace shamrock::sph;
-            Tscal rho_ha      = rho_h(part_mass, h_a, SPHKernel::hfactd);
-            Tscal new_h_val   = newtown_iterate_new_h(rho_ha, rho_sum, sumdWdh, h_a);
+            Tscal rho_ha    = rho_h(part_mass, h_a, SPHKernel::hfactd);
+            Tscal new_h_val = newtown_iterate_new_h(rho_ha, rho_sum, sumdWdh, h_a);
 
             // Clamp h change per iteration
             if (new_h_val < h_a * h_max_evol_m) {
@@ -169,45 +169,43 @@ void IterateSmoothingLengthDensity<Tvec, SPHKernel>::_impl_evaluate_internal() {
         auto e = q.submit(depends_list, [&](sycl::handler &cgh) {
             shamrock::tree::ObjectCacheIterator particle_looper(ploop_ptrs);
 
-            shambase::parallel_for(
-                cgh, cnt, "gsph_compute_density_omega", [=](u64 gid) {
-                    u32 id_a = (u32) gid;
+            shambase::parallel_for(cgh, cnt, "gsph_compute_density_omega", [=](u64 gid) {
+                u32 id_a = (u32) gid;
 
-                    Tvec xyz_a = xyz_acc[id_a];
-                    Tscal h_a  = h_acc[id_a];
-                    Tscal dint = h_a * h_a * Rkern * Rkern;
+                Tvec xyz_a = xyz_acc[id_a];
+                Tscal h_a  = h_acc[id_a];
+                Tscal dint = h_a * h_a * Rkern * Rkern;
 
-                    // SPH density summation
-                    Tscal rho_sum = Tscal(0);
-                    Tscal sumdWdh = Tscal(0);
+                // SPH density summation
+                Tscal rho_sum = Tscal(0);
+                Tscal sumdWdh = Tscal(0);
 
-                    particle_looper.for_each_object(id_a, [&](u32 id_b) {
-                        Tvec dr    = xyz_a - xyz_acc[id_b];
-                        Tscal rab2 = sycl::dot(dr, dr);
+                particle_looper.for_each_object(id_a, [&](u32 id_b) {
+                    Tvec dr    = xyz_a - xyz_acc[id_b];
+                    Tscal rab2 = sycl::dot(dr, dr);
 
-                        if (rab2 > dint) {
-                            return;
-                        }
-
-                        Tscal rab = sycl::sqrt(rab2);
-
-                        rho_sum += part_mass * SPHKernel::W_3d(rab, h_a);
-                        sumdWdh += part_mass * SPHKernel::dhW_3d(rab, h_a);
-                    });
-
-                    // Store density
-                    density_acc[id_a] = sycl::max(rho_sum, Tscal(1e-30));
-
-                    // Compute omega (grad-h correction factor)
-                    // omega = 1 / (1 + h/(D*rho) * dh_rho)
-                    Tscal omega_val = Tscal(1);
-                    if (rho_sum > Tscal(1e-30)) {
-                        omega_val
-                            = Tscal(1) / (Tscal(1) + h_a / (Tscal(DIM) * rho_sum) * sumdWdh);
-                        omega_val = sycl::clamp(omega_val, Tscal(0.5), Tscal(1.5));
+                    if (rab2 > dint) {
+                        return;
                     }
-                    omega_acc[id_a] = omega_val;
+
+                    Tscal rab = sycl::sqrt(rab2);
+
+                    rho_sum += part_mass * SPHKernel::W_3d(rab, h_a);
+                    sumdWdh += part_mass * SPHKernel::dhW_3d(rab, h_a);
                 });
+
+                // Store density
+                density_acc[id_a] = sycl::max(rho_sum, Tscal(1e-30));
+
+                // Compute omega (grad-h correction factor)
+                // omega = 1 / (1 + h/(D*rho) * dh_rho)
+                Tscal omega_val = Tscal(1);
+                if (rho_sum > Tscal(1e-30)) {
+                    omega_val = Tscal(1) / (Tscal(1) + h_a / (Tscal(DIM) * rho_sum) * sumdWdh);
+                    omega_val = sycl::clamp(omega_val, Tscal(0.5), Tscal(1.5));
+                }
+                omega_acc[id_a] = omega_val;
+            });
         });
 
         // Complete event states for all accessed buffers

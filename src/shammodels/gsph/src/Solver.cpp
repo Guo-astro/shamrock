@@ -9,7 +9,7 @@
 
 /**
  * @file Solver.cpp
- * @author Guo (guo.yansong.ngy@gmail.com)
+ * @author Guo Yansong (guo.yansong.ngy@gmail.com)
  * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr)
  * @brief GSPH Solver implementation
  *
@@ -36,14 +36,14 @@
 #include "shammath/sphkernels.hpp"
 #include "shammodels/gsph/Solver.hpp"
 #include "shammodels/gsph/SolverConfig.hpp"
-#include "shammodels/gsph/modules/UpdateDerivs.hpp"
 #include "shammodels/gsph/modules/IterateSmoothingLengthDensity.hpp"
-#include "shammodels/gsph/modules/io/VTKDump.hpp"
+#include "shammodels/gsph/modules/UpdateDerivs.hpp"
 #include "shammodels/gsph/modules/io/GSPHCheckpoint.hpp"
+#include "shammodels/gsph/modules/io/VTKDump.hpp"
 #include "shammodels/sph/BasicSPHGhosts.hpp"
 #include "shammodels/sph/SPHUtilities.hpp"
-#include "shammodels/sph/modules/NeighbourCache.hpp"
 #include "shammodels/sph/modules/LoopSmoothingLengthIter.hpp"
+#include "shammodels/sph/modules/NeighbourCache.hpp"
 #include "shamrock/patch/Patch.hpp"
 #include "shamrock/patch/PatchDataLayer.hpp"
 #include "shamrock/patch/PatchDataLayerLayout.hpp"
@@ -840,14 +840,7 @@ void shammodels::gsph::Solver<Tvec, Kern>::compute_omega() {
             solver_config.htol_up_fine_cycle);
 
     smth_h_iter->set_edges(
-        sizes,
-        storage.neigh_cache,
-        pos_merged,
-        hold,
-        hnew,
-        eps_h,
-        storage.density,
-        storage.omega);
+        sizes, storage.neigh_cache, pos_merged, hold, hnew, eps_h, storage.density, storage.omega);
 
     // Create convergence flag
     std::shared_ptr<shamrock::solvergraph::ScalarEdge<bool>> is_converged
@@ -864,7 +857,7 @@ void shammodels::gsph::Solver<Tvec, Kern>::compute_omega() {
     // Check convergence
     if (!is_converged->value) {
         // Get convergence statistics
-        Tscal local_max_eps = shamrock::solvergraph::get_rank_max(*eps_h);
+        Tscal local_max_eps  = shamrock::solvergraph::get_rank_max(*eps_h);
         Tscal global_max_eps = shamalgs::collective::allreduce_max(local_max_eps);
 
         // Count particles that need cache rebuild (eps == -1)

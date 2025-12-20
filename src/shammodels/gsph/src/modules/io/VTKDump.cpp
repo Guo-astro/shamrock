@@ -9,7 +9,7 @@
 
 /**
  * @file VTKDump.cpp
- * @author Guo (guo.yansong.ngy@gmail.com)
+ * @author Guo Yansong (guo.yansong.ngy@gmail.com)
  * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr)
  * @brief VTK dump implementation for GSPH solver
  */
@@ -156,10 +156,10 @@ namespace shammodels::gsph::modules {
         shamrock::SchedulerUtility utility(scheduler());
 
         PatchDataLayerLayout &pdl = scheduler().pdl();
-        const u32 ixyz   = pdl.get_field_idx<Tvec>("xyz");
-        const u32 ivxyz  = pdl.get_field_idx<Tvec>("vxyz");
-        const u32 iaxyz  = pdl.get_field_idx<Tvec>("axyz");
-        const u32 ihpart = pdl.get_field_idx<Tscal>("hpart");
+        const u32 ixyz            = pdl.get_field_idx<Tvec>("xyz");
+        const u32 ivxyz           = pdl.get_field_idx<Tvec>("vxyz");
+        const u32 iaxyz           = pdl.get_field_idx<Tvec>("axyz");
+        const u32 ihpart          = pdl.get_field_idx<Tscal>("hpart");
 
         // Check for optional internal energy field
         const bool has_uint = solver_config.has_field_uint();
