@@ -138,13 +138,14 @@ void shammodels::gsph::Solver<Tvec, Kern>::gen_ghost_handler(Tscal time_val) {
         SolverBCShearingPeriodic *c
         = std::get_if<SolverBCShearingPeriodic>(&solver_config.boundary_config.config)) {
         // Shearing periodic boundaries (Stone 2010) - reuse SPH implementation
-        storage.ghost_handler.set(GhostHandle{
-            scheduler(),
-            BCShearingPeriodic{c->shear_base, c->shear_dir, c->shear_speed * time_val, c->shear_speed},
-            storage.patch_rank_owner});
+        storage.ghost_handler.set(
+            GhostHandle{
+                scheduler(),
+                BCShearingPeriodic{
+                    c->shear_base, c->shear_dir, c->shear_speed * time_val, c->shear_speed},
+                storage.patch_rank_owner});
     } else {
-        shambase::throw_with_loc<std::runtime_error>(
-            "GSPH: Unsupported boundary condition type.");
+        shambase::throw_with_loc<std::runtime_error>("GSPH: Unsupported boundary condition type.");
     }
 }
 
@@ -508,8 +509,7 @@ void shammodels::gsph::Solver<Tvec, Kern>::apply_position_boundary(Tscal time_va
             c->shear_speed * time_val,
             c->shear_speed);
     } else {
-        shambase::throw_with_loc<std::runtime_error>(
-            "GSPH: Unsupported boundary condition type.");
+        shambase::throw_with_loc<std::runtime_error>("GSPH: Unsupported boundary condition type.");
     }
 
     reatrib.reatribute_patch_objects(storage.serial_patch_tree.get(), "xyz");
