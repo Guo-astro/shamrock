@@ -132,6 +132,10 @@ void shammodels::gsph::Solver<Tvec, Kern>::gen_ghost_handler(Tscal time_val) {
         SolverBCPeriodic *c
         = std::get_if<SolverBCPeriodic>(&solver_config.boundary_config.config)) {
         storage.ghost_handler.set(GhostHandle{scheduler(), BCPeriodic{}, storage.patch_rank_owner});
+    } else {
+        // ShearingPeriodic and other BC types not yet supported in GSPH
+        shambase::throw_with_loc<std::runtime_error>(
+            "GSPH: Unsupported boundary condition type. Only Free and Periodic are supported.");
     }
 }
 
@@ -481,6 +485,10 @@ void shammodels::gsph::Solver<Tvec, Kern>::apply_position_boundary(Tscal time_va
         SolverBCPeriodic *c
         = std::get_if<SolverBCPeriodic>(&solver_config.boundary_config.config)) {
         integrators.fields_apply_periodicity(ixyz, std::pair{bmin, bmax});
+    } else {
+        // ShearingPeriodic and other BC types not yet supported in GSPH
+        shambase::throw_with_loc<std::runtime_error>(
+            "GSPH: Unsupported boundary condition type. Only Free and Periodic are supported.");
     }
 
     reatrib.reatribute_patch_objects(storage.serial_patch_tree.get(), "xyz");
