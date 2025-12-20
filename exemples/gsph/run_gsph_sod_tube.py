@@ -12,16 +12,17 @@ Output: VTK files in output/ directory with simulation time metadata
 
 import json
 import os
+
 import shamrock
 
 # Physical parameters (same as SPH test)
 gamma = 1.4
 
-rho_L = 1.0      # Left density
-rho_R = 0.125    # Right density
+rho_L = 1.0  # Left density
+rho_R = 0.125  # Right density
 
-P_L = 1.0        # Left pressure
-P_R = 0.1        # Right pressure
+P_L = 1.0  # Left pressure
+P_R = 0.1  # Right pressure
 
 # Derived quantities
 fact = (rho_L / rho_R) ** (1.0 / 3.0)
@@ -129,16 +130,22 @@ while t_current < t_final:
 
 # Save times metadata
 with open("output/times_gsph_sod.json", "w") as f:
-    json.dump({
-        "method": "GSPH",
-        "riemann_solver": "HLLC",
-        "kernel": "M6",
-        "gamma": gamma,
-        "rho_L": rho_L, "rho_R": rho_R,
-        "P_L": P_L, "P_R": P_R,
-        "t_final": t_final,
-        "outputs": times
-    }, f, indent=2)
+    json.dump(
+        {
+            "method": "GSPH",
+            "riemann_solver": "HLLC",
+            "kernel": "M6",
+            "gamma": gamma,
+            "rho_L": rho_L,
+            "rho_R": rho_R,
+            "P_L": P_L,
+            "P_R": P_R,
+            "t_final": t_final,
+            "outputs": times,
+        },
+        f,
+        indent=2,
+    )
 
 print(f"\nSimulation complete! {output_count} VTK files saved to output/")
 print("\nNote: L2 error analysis not available for GSPH model.")
