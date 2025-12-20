@@ -85,49 +85,35 @@ void add_gsph_instance(py::module &m, std::string name_config, std::string name_
 )==")
         // Reconstruction config
         .def(
-            "set_reconstruct_piecewise_constant",
+            "set_reconstruct_first_order",
             [](TConfig &self) {
-                self.set_reconstruct_piecewise_constant();
+                self.set_reconstruct_first_order();
             },
             R"==(
     Set first-order piecewise constant reconstruction.
 
-    Most diffusive but most stable. Good for initial testing.
+    Sets all gradients to zero. Most diffusive but most stable.
+    Good for very strong shocks or initial testing.
 )==")
         .def(
-            "set_reconstruct_muscl",
-            [](TConfig &self, std::string limiter) {
-                using ReconstructConfig = typename TConfig::ReconstructConfig;
-                typename ReconstructConfig::Limiter lim;
-
-                if (limiter == "van_leer" || limiter == "VanLeer") {
-                    lim = ReconstructConfig::Limiter::VanLeer;
-                } else if (limiter == "minmod" || limiter == "Minmod") {
-                    lim = ReconstructConfig::Limiter::Minmod;
-                } else if (limiter == "superbee" || limiter == "Superbee") {
-                    lim = ReconstructConfig::Limiter::Superbee;
-                } else if (limiter == "mc" || limiter == "MC") {
-                    lim = ReconstructConfig::Limiter::MC;
-                } else {
-                    throw shambase::make_except_with_loc<std::invalid_argument>(
-                        "Unknown limiter: " + limiter
-                        + ". Valid options: van_leer, minmod, superbee, mc");
-                }
-
-                self.set_reconstruct_muscl(lim);
+            "set_reconstruct_second_order",
+            [](TConfig &self, Tscal mach_threshold) {
+                self.set_reconstruct_second_order(mach_threshold);
             },
-            py::kw_only(),
-            py::arg("limiter") = "van_leer",
+            py::arg("mach_threshold") = Tscal{1.1},
             R"==(
-    Set second-order MUSCL reconstruction with slope limiting.
+    Set second-order reconstruction (Inutsuka 2002).
 
-    More accurate than piecewise constant but may be less stable for
-    strong discontinuities.
+    Uses computed gradients with monotonicity constraint.
+    At shock fronts (Mach > mach_threshold), velocity gradients
+    are set to zero to maintain stability.
 
     Parameters
     ----------
-    limiter : str
-        Slope limiter type. Options: "van_leer" (default), "minmod", "superbee", "mc"
+    mach_threshold : float, optional
+        Mach number threshold for monotonicity constraint.
+        When relative velocity > c_s / mach_threshold, use first-order.
+        Default: 1.1
 )==")
         // EOS config
         .def(

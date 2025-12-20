@@ -167,13 +167,10 @@ struct shammodels::gsph::SolverConfig {
     using ReconstructConfig = ReconstructConfig<Tvec>;
     ReconstructConfig reconstruct_config;
 
-    inline void set_reconstruct_piecewise_constant() {
-        reconstruct_config.set_piecewise_constant();
-    }
+    inline void set_reconstruct_first_order() { reconstruct_config.set_first_order(); }
 
-    inline void set_reconstruct_muscl(
-        typename ReconstructConfig::Limiter limiter = ReconstructConfig::Limiter::VanLeer) {
-        reconstruct_config.set_muscl(limiter);
+    inline void set_reconstruct_second_order(Tscal mach_threshold = Tscal{1.1}) {
+        reconstruct_config.set_second_order(mach_threshold);
     }
 
     inline bool requires_gradients() const { return reconstruct_config.requires_gradients(); }

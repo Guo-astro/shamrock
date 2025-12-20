@@ -18,6 +18,12 @@
  * This file contains the configuration structures for spatial reconstruction
  * methods used in Godunov SPH (GSPH). Reconstruction extrapolates primitive
  * variables to particle interfaces for higher-order accuracy.
+ *
+ * Based on Inutsuka (2002) "Reformulation of Smoothed Particle Hydrodynamics
+ * with Riemann Solver":
+ * - First-order: Piecewise constant (all gradients set to zero)
+ * - Second-order: Uses gradients with monotonicity constraint on velocity
+ *   (gradients set to zero at shock fronts when Mach > threshold)
  */
 
 #include "shambackends/type_traits.hpp"
@@ -32,8 +38,10 @@ namespace shammodels::gsph {
      * @brief Configuration for reconstruction methods in GSPH
      *
      * This struct contains the configuration for different reconstruction types:
-     * - PiecewiseConstant: 1st order, no reconstruction
-     * - MUSCL: 2nd order MUSCL-Hancock with slope limiters
+     * - FirstOrder: Piecewise constant, no reconstruction (most diffusive)
+     * - SecondOrder: Uses gradients with Inutsuka's monotonicity constraint
+     *
+     * Reference: Inutsuka (2002) Section 3.3
      *
      * @tparam Tvec type of the vector of coordinates
      */
@@ -49,65 +57,53 @@ struct shammodels::gsph::ReconstructConfig {
     static constexpr u32 dim = shambase::VectorProperties<Tvec>::dimension;
 
     /**
-     * @brief Slope limiter types for MUSCL reconstruction
+     * @brief First-order reconstruction (piecewise constant)
+     *
+     * Sets all gradients to zero. Simple and robust but diffusive.
+     * Equivalent to standard first-order Godunov method.
+     * Use this for very strong shocks or debugging.
      */
-    enum class Limiter {
-        VanLeer,  ///< van Leer limiter (smooth)
-        Minmod,   ///< Minmod limiter (most diffusive)
-        Superbee, ///< Superbee limiter (least diffusive)
-        MC        ///< Monotonized Central limiter
-    };
+    struct FirstOrder {};
 
     /**
-     * @brief Piecewise constant (1st order)
+     * @brief Second-order reconstruction (Inutsuka 2002)
      *
-     * No spatial reconstruction. Simple and robust but diffusive.
-     * Equivalent to standard Godunov method.
-     */
-    struct PiecewiseConstant {};
-
-    /**
-     * @brief MUSCL reconstruction (2nd order)
+     * Uses computed gradients with monotonicity constraint.
+     * At shock fronts (Mach > mach_threshold), velocity gradients
+     * are set to zero to maintain stability.
      *
-     * Monotone Upstream-centered Schemes for Conservation Laws.
-     * Uses slope limiters to maintain TVD property.
-     * Reference: van Leer (1979)
+     * Reference: Inutsuka (2002) Eq. (59)-(61)
      */
-    struct MUSCL {
-        Limiter limiter = Limiter::VanLeer; ///< Slope limiter type
+    struct SecondOrder {
+        /// Mach number threshold for monotonicity constraint (default: 1.1)
+        /// When relative velocity > c_s / mach_threshold, use first-order
+        Tscal mach_threshold = Tscal{1.1};
     };
 
-    using Variant = std::variant<PiecewiseConstant, MUSCL>;
+    using Variant = std::variant<FirstOrder, SecondOrder>;
 
-    Variant config = PiecewiseConstant{};
+    Variant config = SecondOrder{};
 
     void set(Variant v) { config = v; }
 
-    void set_piecewise_constant() { set(PiecewiseConstant{}); }
+    void set_first_order() { set(FirstOrder{}); }
 
-    void set_muscl(Limiter limiter = Limiter::VanLeer) { set(MUSCL{limiter}); }
+    void set_second_order(Tscal mach_threshold = Tscal{1.1}) { set(SecondOrder{mach_threshold}); }
 
-    inline bool is_piecewise_constant() const {
-        return std::holds_alternative<PiecewiseConstant>(config);
-    }
+    inline bool is_first_order() const { return std::holds_alternative<FirstOrder>(config); }
 
-    inline bool is_muscl() const { return std::holds_alternative<MUSCL>(config); }
+    inline bool is_second_order() const { return std::holds_alternative<SecondOrder>(config); }
 
-    inline bool requires_gradients() const { return is_muscl(); }
+    inline bool requires_gradients() const { return is_second_order(); }
 
     inline void print_status() const {
         logger::raw_ln("--- Reconstruction config");
 
-        if (std::get_if<PiecewiseConstant>(&config)) {
-            logger::raw_ln("  Type : PiecewiseConstant (1st order)");
-        } else if (const MUSCL *v = std::get_if<MUSCL>(&config)) {
-            logger::raw_ln("  Type    : MUSCL (2nd order)");
-            switch (v->limiter) {
-            case Limiter::VanLeer : logger::raw_ln("  Limiter : VanLeer"); break;
-            case Limiter::Minmod  : logger::raw_ln("  Limiter : Minmod"); break;
-            case Limiter::Superbee: logger::raw_ln("  Limiter : Superbee"); break;
-            case Limiter::MC      : logger::raw_ln("  Limiter : MC"); break;
-            }
+        if (std::get_if<FirstOrder>(&config)) {
+            logger::raw_ln("  Type : FirstOrder (piecewise constant)");
+        } else if (const SecondOrder *v = std::get_if<SecondOrder>(&config)) {
+            logger::raw_ln("  Type           : SecondOrder (Inutsuka 2002)");
+            logger::raw_ln("  mach_threshold =", v->mach_threshold);
         } else {
             shambase::throw_unimplemented();
         }
@@ -120,26 +116,18 @@ namespace shammodels::gsph {
 
     template<class Tvec>
     inline void to_json(nlohmann::json &j, const ReconstructConfig<Tvec> &p) {
-        using T                 = ReconstructConfig<Tvec>;
-        using PiecewiseConstant = typename T::PiecewiseConstant;
-        using MUSCL             = typename T::MUSCL;
-        using Limiter           = typename T::Limiter;
+        using T           = ReconstructConfig<Tvec>;
+        using FirstOrder  = typename T::FirstOrder;
+        using SecondOrder = typename T::SecondOrder;
 
-        if (std::get_if<PiecewiseConstant>(&p.config)) {
+        if (std::get_if<FirstOrder>(&p.config)) {
             j = {
-                {"reconstruct_type", "piecewise_constant"},
+                {"reconstruct_type", "first_order"},
             };
-        } else if (const MUSCL *v = std::get_if<MUSCL>(&p.config)) {
-            std::string limiter_str;
-            switch (v->limiter) {
-            case Limiter::VanLeer : limiter_str = "vanleer"; break;
-            case Limiter::Minmod  : limiter_str = "minmod"; break;
-            case Limiter::Superbee: limiter_str = "superbee"; break;
-            case Limiter::MC      : limiter_str = "mc"; break;
-            }
+        } else if (const SecondOrder *v = std::get_if<SecondOrder>(&p.config)) {
             j = {
-                {"reconstruct_type", "muscl"},
-                {"limiter", limiter_str},
+                {"reconstruct_type", "second_order"},
+                {"mach_threshold", v->mach_threshold},
             };
         } else {
             shambase::throw_unimplemented();
@@ -148,10 +136,10 @@ namespace shammodels::gsph {
 
     template<class Tvec>
     inline void from_json(const nlohmann::json &j, ReconstructConfig<Tvec> &p) {
-        using T                 = ReconstructConfig<Tvec>;
-        using PiecewiseConstant = typename T::PiecewiseConstant;
-        using MUSCL             = typename T::MUSCL;
-        using Limiter           = typename T::Limiter;
+        using T           = ReconstructConfig<Tvec>;
+        using Tscal       = shambase::VecComponent<Tvec>;
+        using FirstOrder  = typename T::FirstOrder;
+        using SecondOrder = typename T::SecondOrder;
 
         if (!j.contains("reconstruct_type")) {
             shambase::throw_with_loc<std::runtime_error>(
@@ -161,26 +149,14 @@ namespace shammodels::gsph {
         std::string reconstruct_type;
         j.at("reconstruct_type").get_to(reconstruct_type);
 
-        if (reconstruct_type == "piecewise_constant") {
-            p.set(PiecewiseConstant{});
-        } else if (reconstruct_type == "muscl") {
-            std::string limiter_str;
-            j.at("limiter").get_to(limiter_str);
-
-            Limiter limiter;
-            if (limiter_str == "vanleer") {
-                limiter = Limiter::VanLeer;
-            } else if (limiter_str == "minmod") {
-                limiter = Limiter::Minmod;
-            } else if (limiter_str == "superbee") {
-                limiter = Limiter::Superbee;
-            } else if (limiter_str == "mc") {
-                limiter = Limiter::MC;
-            } else {
-                shambase::throw_unimplemented("Unknown limiter type: " + limiter_str);
+        if (reconstruct_type == "first_order") {
+            p.set(FirstOrder{});
+        } else if (reconstruct_type == "second_order") {
+            Tscal mach_threshold = Tscal{1.1};
+            if (j.contains("mach_threshold")) {
+                j.at("mach_threshold").get_to(mach_threshold);
             }
-
-            p.set(MUSCL{limiter});
+            p.set(SecondOrder{mach_threshold});
         } else {
             shambase::throw_unimplemented("Unknown reconstruction type: " + reconstruct_type);
         }
