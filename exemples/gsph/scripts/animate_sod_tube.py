@@ -13,12 +13,13 @@ Usage:
     python3 animate_sod_tube.py <data_dir> [output_file]
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
 import glob
-import sys
 import os
+import sys
 from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Import from shared analytical module
 exemples_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -128,7 +129,7 @@ rho_R = float(first_data["metadata"].get("rho_R", "0.125"))
 p_L = float(first_data["metadata"].get("p_L", "1.0"))
 p_R = float(first_data["metadata"].get("p_R", "0.1"))
 
-print(f"Simulation parameters:")
+print("Simulation parameters:")
 print(f"  gamma = {gamma}")
 print(f"  Left:  rho = {rho_L}, P = {p_L}")
 print(f"  Right: rho = {rho_R}, P = {p_R}")

@@ -9,16 +9,17 @@ Or with make:
     make gsph-sod-animate
 """
 
-import numpy as np
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation, PillowWriter
 import glob
 import os
 import sys
+
+import matplotlib.pyplot as plt
 import pyvista as pv
+from matplotlib.animation import FuncAnimation, PillowWriter
 
 # Import from shared analytical module
 exemples_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

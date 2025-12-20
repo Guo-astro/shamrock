@@ -12,6 +12,7 @@ Output: VTK files in output/ directory with simulation time metadata
 
 import json
 import os
+
 import shamrock
 
 # Physical parameters (same as SPH test)

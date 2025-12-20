@@ -13,12 +13,13 @@ Usage:
     python3 animate_sedov_blast.py <data_dir> [output_file]
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
 import glob
-import sys
 import os
+import sys
 from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Import from shared analytical module
 exemples_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -176,7 +177,7 @@ gamma = float(first_data["metadata"].get("gamma", "1.666667"))
 E_blast = float(first_data["metadata"].get("E_blast", "1.0"))
 rho_0 = float(first_data["metadata"].get("rho_0", "1.0"))
 
-print(f"Simulation parameters:")
+print("Simulation parameters:")
 print(f"  gamma = {gamma}")
 print(f"  E_blast = {E_blast}")
 print(f"  rho_0 = {rho_0}")
