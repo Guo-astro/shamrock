@@ -9,7 +9,7 @@
 
 /**
  * @file UpdateDerivs.cpp
- * @author Guo (guo.yansong.ngy@gmail.com)
+ * @author Guo Yansong (guo.yansong.ngy@gmail.com)
  * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr) --no git blame--
  * @brief Implementation of GSPH derivative update module
  *
@@ -35,8 +35,8 @@
 
 // Named constants for numerical stability (used in derivative calculations)
 namespace {
-    constexpr f64 MAX_ACCELERATION_CLAMP = 1e6; // Maximum allowed acceleration magnitude
-    constexpr f64 MAX_DUDT_CLAMP         = 1e6; // Maximum allowed du/dt magnitude
+    constexpr f64 MAX_ACCELERATION_CLAMP = 1e6;  // Maximum allowed acceleration magnitude
+    constexpr f64 MAX_DUDT_CLAMP         = 1e6;  // Maximum allowed du/dt magnitude
     constexpr f64 P_STAR_MAX_RATIO       = 10.0; // Max ratio of p_star to average pressure
 } // namespace
 
@@ -236,9 +236,10 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_ite
 
                     // Limit p_star to prevent excessive shock forces
                     // Maximum p_star is limited to a multiple of the average pressure
-                    const Tscal p_avg      = Tscal(0.5) * (P_a + P_b);
-                    const Tscal p_star_max = Tscal(P_STAR_MAX_RATIO) * sycl::max(p_avg, sycl::max(P_a, P_b));
-                    p_star                 = sycl::min(p_star, p_star_max);
+                    const Tscal p_avg = Tscal(0.5) * (P_a + P_b);
+                    const Tscal p_star_max
+                        = Tscal(P_STAR_MAX_RATIO) * sycl::max(p_avg, sycl::max(P_a, P_b));
+                    p_star = sycl::min(p_star, p_star_max);
 
                     // Kernel gradients
                     const Tscal Fab_a = Kernel::dW_3d(rab, h_a);
@@ -461,9 +462,10 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_hll
                     Tscal v_star = riemann_result.v_star;
 
                     // Limit p_star to prevent excessive shock forces
-                    const Tscal p_avg      = Tscal(0.5) * (P_a + P_b);
-                    const Tscal p_star_max = Tscal(P_STAR_MAX_RATIO) * sycl::max(p_avg, sycl::max(P_a, P_b));
-                    p_star                 = sycl::min(p_star, p_star_max);
+                    const Tscal p_avg = Tscal(0.5) * (P_a + P_b);
+                    const Tscal p_star_max
+                        = Tscal(P_STAR_MAX_RATIO) * sycl::max(p_avg, sycl::max(P_a, P_b));
+                    p_star = sycl::min(p_star, p_star_max);
 
                     const Tscal Fab_a = Kernel::dW_3d(rab, h_a);
                     const Tscal Fab_b = Kernel::dW_3d(rab, h_b);

@@ -11,7 +11,7 @@
 
 /**
  * @file UpdateDerivs.hpp
- * @author Guo (guo.yansong.ngy@gmail.com)
+ * @author Guo Yansong (guo.yansong.ngy@gmail.com)
  * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr)
  * @brief GSPH derivative update module
  *
