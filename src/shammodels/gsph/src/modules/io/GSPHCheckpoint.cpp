@@ -9,12 +9,12 @@
 
 /**
  * @file GSPHCheckpoint.cpp
- * @author Guo (guo.yansong.ngy@gmail.com)
+ * @author Guo Yansong (guo.yansong.ngy@gmail.com)
  * @brief Implementation of GSPH checkpoint/restart functionality
  */
 
-#include "shammodels/gsph/modules/io/GSPHCheckpoint.hpp"
 #include "shambase/exception.hpp"
+#include "shammodels/gsph/modules/io/GSPHCheckpoint.hpp"
 #include "shammath/sphkernels.hpp"
 #include "shamrock/patch/PatchDataLayerLayout.hpp"
 #include "shamsys/legacy/log.hpp"
@@ -43,15 +43,15 @@ namespace shammodels::gsph::modules {
         meta["particle_count"] = particle_count;
 
         // Solver configuration
-        meta["config"]["gamma"]      = solver_config.gamma;
-        meta["config"]["gpart_mass"] = solver_config.gpart_mass;
-        meta["config"]["cfl_cour"]   = solver_config.cfl_config.cfl_cour;
-        meta["config"]["cfl_force"]  = solver_config.cfl_config.cfl_force;
+        meta["config"]["gamma"]                = solver_config.gamma;
+        meta["config"]["gpart_mass"]           = solver_config.gpart_mass;
+        meta["config"]["cfl_cour"]             = solver_config.cfl_config.cfl_cour;
+        meta["config"]["cfl_force"]            = solver_config.cfl_config.cfl_force;
         meta["config"]["htol_up_coarse_cycle"] = solver_config.htol_up_coarse_cycle;
         meta["config"]["htol_up_fine_cycle"]   = solver_config.htol_up_fine_cycle;
 
         // EOS type - use variant get_if
-        using EOSAdiabatic = typename Config::EOSConfig::Adiabatic;
+        using EOSAdiabatic  = typename Config::EOSConfig::Adiabatic;
         using EOSIsothermal = typename Config::EOSConfig::Isothermal;
         if (std::get_if<EOSAdiabatic>(&solver_config.eos_config.config)) {
             meta["config"]["eos_type"] = "adiabatic";
@@ -61,7 +61,7 @@ namespace shammodels::gsph::modules {
 
         // Riemann solver type - use variant get_if
         using RiemannIterative = typename Config::RiemannConfig::Iterative;
-        using RiemannHLLC = typename Config::RiemannConfig::HLLC;
+        using RiemannHLLC      = typename Config::RiemannConfig::HLLC;
         if (std::get_if<RiemannIterative>(&solver_config.riemann_config.config)) {
             meta["config"]["riemann_type"] = "iterative";
         } else if (std::get_if<RiemannHLLC>(&solver_config.riemann_config.config)) {
@@ -107,7 +107,10 @@ namespace shammodels::gsph::modules {
         Tscal file_gamma = meta.at("config").at("gamma").get<Tscal>();
         if (std::abs(file_gamma - solver_config.gamma) > Tscal(1e-10)) {
             logger::warn_ln(
-                "GSPHCheckpoint", "gamma mismatch: file has", file_gamma, ", config has",
+                "GSPHCheckpoint",
+                "gamma mismatch: file has",
+                file_gamma,
+                ", config has",
                 solver_config.gamma);
         }
     }
@@ -119,7 +122,8 @@ namespace shammodels::gsph::modules {
 
         std::ofstream file(filename, std::ios::binary);
         if (!file) {
-            shambase::throw_with_loc<std::runtime_error>("Cannot open file for writing: " + filename);
+            shambase::throw_with_loc<std::runtime_error>(
+                "Cannot open file for writing: " + filename);
         }
 
         PatchDataLayerLayout &pdl = scheduler().pdl();
@@ -139,31 +143,32 @@ namespace shammodels::gsph::modules {
         std::vector<Tscal> all_uint;
         std::vector<Tscal> all_duint;
 
-        scheduler().for_each_patchdata_nonempty([&](const shamrock::patch::Patch p, shamrock::patch::PatchDataLayer &pdat) {
-            u64 cnt = pdat.get_obj_cnt();
+        scheduler().for_each_patchdata_nonempty(
+            [&](const shamrock::patch::Patch p, shamrock::patch::PatchDataLayer &pdat) {
+                u64 cnt = pdat.get_obj_cnt();
 
-            // Read data from device
-            auto xyz_span   = pdat.get_field_buf_ref<Tvec>(ixyz).copy_to_stdvec();
-            auto vxyz_span  = pdat.get_field_buf_ref<Tvec>(ivxyz).copy_to_stdvec();
-            auto axyz_span  = pdat.get_field_buf_ref<Tvec>(iaxyz).copy_to_stdvec();
-            auto hpart_span = pdat.get_field_buf_ref<Tscal>(ihpart).copy_to_stdvec();
+                // Read data from device
+                auto xyz_span   = pdat.get_field_buf_ref<Tvec>(ixyz).copy_to_stdvec();
+                auto vxyz_span  = pdat.get_field_buf_ref<Tvec>(ivxyz).copy_to_stdvec();
+                auto axyz_span  = pdat.get_field_buf_ref<Tvec>(iaxyz).copy_to_stdvec();
+                auto hpart_span = pdat.get_field_buf_ref<Tscal>(ihpart).copy_to_stdvec();
 
-            for (u64 i = 0; i < cnt; i++) {
-                all_xyz.push_back(xyz_span[i]);
-                all_vxyz.push_back(vxyz_span[i]);
-                all_axyz.push_back(axyz_span[i]);
-                all_hpart.push_back(hpart_span[i]);
-            }
-
-            if (has_uint) {
-                auto uint_span  = pdat.get_field_buf_ref<Tscal>(iuint).copy_to_stdvec();
-                auto duint_span = pdat.get_field_buf_ref<Tscal>(iduint).copy_to_stdvec();
                 for (u64 i = 0; i < cnt; i++) {
-                    all_uint.push_back(uint_span[i]);
-                    all_duint.push_back(duint_span[i]);
+                    all_xyz.push_back(xyz_span[i]);
+                    all_vxyz.push_back(vxyz_span[i]);
+                    all_axyz.push_back(axyz_span[i]);
+                    all_hpart.push_back(hpart_span[i]);
                 }
-            }
-        });
+
+                if (has_uint) {
+                    auto uint_span  = pdat.get_field_buf_ref<Tscal>(iuint).copy_to_stdvec();
+                    auto duint_span = pdat.get_field_buf_ref<Tscal>(iduint).copy_to_stdvec();
+                    for (u64 i = 0; i < cnt; i++) {
+                        all_uint.push_back(uint_span[i]);
+                        all_duint.push_back(duint_span[i]);
+                    }
+                }
+            });
 
         // Write particle count
         u64 count = all_xyz.size();
@@ -192,7 +197,8 @@ namespace shammodels::gsph::modules {
 
         std::ifstream file(filename, std::ios::binary);
         if (!file) {
-            shambase::throw_with_loc<std::runtime_error>("Cannot open file for reading: " + filename);
+            shambase::throw_with_loc<std::runtime_error>(
+                "Cannot open file for reading: " + filename);
         }
 
         // Read particle count
@@ -294,7 +300,12 @@ namespace shammodels::gsph::modules {
         write_binary_data(bin_file);
 
         logger::info_ln(
-            "GSPHCheckpoint", "Checkpoint written: time =", time, ", step =", step, ", particles =",
+            "GSPHCheckpoint",
+            "Checkpoint written: time =",
+            time,
+            ", step =",
+            step,
+            ", particles =",
             total_count);
     }
 
@@ -322,7 +333,12 @@ namespace shammodels::gsph::modules {
         read_binary_data(bin_file, particle_count);
 
         logger::info_ln(
-            "GSPHCheckpoint", "Checkpoint loaded: time =", time, ", step =", step, ", particles =",
+            "GSPHCheckpoint",
+            "Checkpoint loaded: time =",
+            time,
+            ", step =",
+            step,
+            ", particles =",
             particle_count);
     }
 

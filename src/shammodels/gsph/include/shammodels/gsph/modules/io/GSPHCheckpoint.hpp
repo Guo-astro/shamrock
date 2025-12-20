@@ -11,7 +11,7 @@
 
 /**
  * @file GSPHCheckpoint.hpp
- * @author Guo (guo.yansong.ngy@gmail.com)
+ * @author Guo Yansong (guo.yansong.ngy@gmail.com)
  * @brief Checkpoint/restart functionality for GSPH solver
  *
  * Provides checkpoint (dump) and restart functionality for GSPH simulations.
@@ -114,7 +114,8 @@ namespace shammodels::gsph::modules {
         /**
          * @brief Parse JSON metadata from checkpoint
          */
-        void parse_metadata(const nlohmann::json &meta, Tscal &time, u64 &step, u64 &particle_count);
+        void parse_metadata(
+            const nlohmann::json &meta, Tscal &time, u64 &step, u64 &particle_count);
     };
 
 } // namespace shammodels::gsph::modules

@@ -9,7 +9,7 @@
 
 /**
  * @file pyGSPHModel.cpp
- * @author Guo (guo.yansong.ngy@gmail.com)
+ * @author Guo Yansong (guo.yansong.ngy@gmail.com)
  * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr)
  * @brief Python bindings for the GSPH (Godunov SPH) model
  *
