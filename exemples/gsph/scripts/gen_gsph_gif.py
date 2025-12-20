@@ -11,7 +11,8 @@ Or with make:
 
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 import glob
@@ -38,15 +39,17 @@ output_dir = "simulations_data/gsph_sod"
 # Create analytical solver (interface at x=0)
 sod_solver = SodAnalytical(gamma=gamma, x0=0.0)
 
+
 def read_vtk(filename):
     """Read VTK file using pyvista"""
     mesh = pv.read(filename)
     points = np.array(mesh.points)
-    velocities = np.array(mesh['v'])
-    hpart = np.array(mesh['h'])
-    rho = np.array(mesh['rho'])
-    P = np.array(mesh['P'])
+    velocities = np.array(mesh["v"])
+    hpart = np.array(mesh["h"])
+    rho = np.array(mesh["rho"])
+    P = np.array(mesh["P"])
     return points, velocities, hpart, rho, P
+
 
 # Get list of VTK files
 vtk_files = sorted(glob.glob(os.path.join(vtk_dir, "gsph_*.vtk")))
@@ -58,6 +61,7 @@ if len(vtk_files) == 0:
 
 # Set up figure
 fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+
 
 def update(frame):
     vtk_file = vtk_files[frame]
@@ -78,47 +82,50 @@ def update(frame):
     P_sort = P[idx]
 
     # Analytical solution using exact Riemann solver
-    x_ana, rho_ana, vx_ana, P_ana, _ = sod_solver.solution_at_time(t, x_min=-1.0, x_max=1.0, n_points=500)
+    x_ana, rho_ana, vx_ana, P_ana, _ = sod_solver.solution_at_time(
+        t, x_min=-1.0, x_max=1.0, n_points=500
+    )
 
     # Clear and redraw
     for ax in axes.flat:
         ax.clear()
 
-    axes[0, 0].plot(x_ana, rho_ana, 'r-', lw=2, label='Analytical')
-    axes[0, 0].scatter(x_sort, rho_sort, s=1, alpha=0.5, label='GSPH')
-    axes[0, 0].set_ylabel('Density')
-    axes[0, 0].set_title('Density')
+    axes[0, 0].plot(x_ana, rho_ana, "r-", lw=2, label="Analytical")
+    axes[0, 0].scatter(x_sort, rho_sort, s=1, alpha=0.5, label="GSPH")
+    axes[0, 0].set_ylabel("Density")
+    axes[0, 0].set_title("Density")
     axes[0, 0].legend()
     axes[0, 0].set_xlim(-1.1, 1.1)
     axes[0, 0].set_ylim(0, 1.2)
 
-    axes[0, 1].plot(x_ana, vx_ana, 'r-', lw=2, label='Analytical')
-    axes[0, 1].scatter(x_sort, vx_sort, s=1, alpha=0.5, label='GSPH')
-    axes[0, 1].set_ylabel('Velocity')
-    axes[0, 1].set_title('Velocity')
+    axes[0, 1].plot(x_ana, vx_ana, "r-", lw=2, label="Analytical")
+    axes[0, 1].scatter(x_sort, vx_sort, s=1, alpha=0.5, label="GSPH")
+    axes[0, 1].set_ylabel("Velocity")
+    axes[0, 1].set_title("Velocity")
     axes[0, 1].legend()
     axes[0, 1].set_xlim(-1.1, 1.1)
     axes[0, 1].set_ylim(-0.1, 1.1)
 
-    axes[1, 0].plot(x_ana, P_ana, 'r-', lw=2, label='Analytical')
-    axes[1, 0].scatter(x_sort, P_sort, s=1, alpha=0.5, label='GSPH')
-    axes[1, 0].set_ylabel('Pressure')
-    axes[1, 0].set_xlabel('x')
-    axes[1, 0].set_title('Pressure')
+    axes[1, 0].plot(x_ana, P_ana, "r-", lw=2, label="Analytical")
+    axes[1, 0].scatter(x_sort, P_sort, s=1, alpha=0.5, label="GSPH")
+    axes[1, 0].set_ylabel("Pressure")
+    axes[1, 0].set_xlabel("x")
+    axes[1, 0].set_title("Pressure")
     axes[1, 0].legend()
     axes[1, 0].set_xlim(-1.1, 1.1)
     axes[1, 0].set_ylim(0, 1.2)
 
     axes[1, 1].scatter(x_sort, h[idx], s=1, alpha=0.5)
-    axes[1, 1].set_ylabel('h')
-    axes[1, 1].set_xlabel('x')
-    axes[1, 1].set_title('Smoothing Length h')
+    axes[1, 1].set_ylabel("h")
+    axes[1, 1].set_xlabel("x")
+    axes[1, 1].set_title("Smoothing Length h")
     axes[1, 1].set_xlim(-1.1, 1.1)
 
-    fig.suptitle(f'GSPH Sod Shock Tube - HLLC (t = {t:.3f})', fontsize=14, fontweight='bold')
+    fig.suptitle(f"GSPH Sod Shock Tube - HLLC (t = {t:.3f})", fontsize=14, fontweight="bold")
     plt.tight_layout()
 
     return axes.flat
+
 
 # Create animation
 print("Creating animation...")
