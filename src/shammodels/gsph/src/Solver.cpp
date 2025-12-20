@@ -117,12 +117,14 @@ void shammodels::gsph::Solver<Tvec, Kern>::gen_ghost_handler(Tscal time_val) {
     using CfgClass = sph::BasicSPHGhostHandlerConfig<Tvec>;
     using BCConfig = typename CfgClass::Variant;
 
-    using BCFree     = typename CfgClass::Free;
-    using BCPeriodic = typename CfgClass::Periodic;
+    using BCFree             = typename CfgClass::Free;
+    using BCPeriodic         = typename CfgClass::Periodic;
+    using BCShearingPeriodic = typename CfgClass::ShearingPeriodic;
 
-    using SolverConfigBC   = typename Config::BCConfig;
-    using SolverBCFree     = typename SolverConfigBC::Free;
-    using SolverBCPeriodic = typename SolverConfigBC::Periodic;
+    using SolverConfigBC           = typename Config::BCConfig;
+    using SolverBCFree             = typename SolverConfigBC::Free;
+    using SolverBCPeriodic         = typename SolverConfigBC::Periodic;
+    using SolverBCShearingPeriodic = typename SolverConfigBC::ShearingPeriodic;
 
     // Boundary condition selection - similar to SPH solver
     // Note: Wall boundaries use Periodic with dynamic wall particles
@@ -132,10 +134,17 @@ void shammodels::gsph::Solver<Tvec, Kern>::gen_ghost_handler(Tscal time_val) {
         SolverBCPeriodic *c
         = std::get_if<SolverBCPeriodic>(&solver_config.boundary_config.config)) {
         storage.ghost_handler.set(GhostHandle{scheduler(), BCPeriodic{}, storage.patch_rank_owner});
+    } else if (
+        SolverBCShearingPeriodic *c
+        = std::get_if<SolverBCShearingPeriodic>(&solver_config.boundary_config.config)) {
+        // Shearing periodic boundaries (Stone 2010) - reuse SPH implementation
+        storage.ghost_handler.set(GhostHandle{
+            scheduler(),
+            BCShearingPeriodic{c->shear_base, c->shear_dir, c->shear_speed * time_val, c->shear_speed},
+            storage.patch_rank_owner});
     } else {
-        // ShearingPeriodic and other BC types not yet supported in GSPH
         shambase::throw_with_loc<std::runtime_error>(
-            "GSPH: Unsupported boundary condition type. Only Free and Periodic are supported.");
+            "GSPH: Unsupported boundary condition type.");
     }
 }
 
@@ -473,9 +482,10 @@ void shammodels::gsph::Solver<Tvec, Kern>::apply_position_boundary(Tscal time_va
     const u32 ivxyz   = pdl.get_field_idx<Tvec>("vxyz");
     auto [bmin, bmax] = sched.get_box_volume<Tvec>();
 
-    using SolverConfigBC   = typename Config::BCConfig;
-    using SolverBCFree     = typename SolverConfigBC::Free;
-    using SolverBCPeriodic = typename SolverConfigBC::Periodic;
+    using SolverConfigBC           = typename Config::BCConfig;
+    using SolverBCFree             = typename SolverConfigBC::Free;
+    using SolverBCPeriodic         = typename SolverConfigBC::Periodic;
+    using SolverBCShearingPeriodic = typename SolverConfigBC::ShearingPeriodic;
 
     if (SolverBCFree *c = std::get_if<SolverBCFree>(&solver_config.boundary_config.config)) {
         if (shamcomm::world_rank() == 0) {
@@ -485,10 +495,21 @@ void shammodels::gsph::Solver<Tvec, Kern>::apply_position_boundary(Tscal time_va
         SolverBCPeriodic *c
         = std::get_if<SolverBCPeriodic>(&solver_config.boundary_config.config)) {
         integrators.fields_apply_periodicity(ixyz, std::pair{bmin, bmax});
+    } else if (
+        SolverBCShearingPeriodic *c
+        = std::get_if<SolverBCShearingPeriodic>(&solver_config.boundary_config.config)) {
+        // Apply shearing periodic boundaries (Stone 2010) - reuse SPH implementation
+        integrators.fields_apply_shearing_periodicity(
+            ixyz,
+            ivxyz,
+            std::pair{bmin, bmax},
+            c->shear_base,
+            c->shear_dir,
+            c->shear_speed * time_val,
+            c->shear_speed);
     } else {
-        // ShearingPeriodic and other BC types not yet supported in GSPH
         shambase::throw_with_loc<std::runtime_error>(
-            "GSPH: Unsupported boundary condition type. Only Free and Periodic are supported.");
+            "GSPH: Unsupported boundary condition type.");
     }
 
     reatrib.reatribute_patch_objects(storage.serial_patch_tree.get(), "xyz");
