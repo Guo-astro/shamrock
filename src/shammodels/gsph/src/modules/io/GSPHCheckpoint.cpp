@@ -14,8 +14,8 @@
  */
 
 #include "shambase/exception.hpp"
-#include "shammodels/gsph/modules/io/GSPHCheckpoint.hpp"
 #include "shammath/sphkernels.hpp"
+#include "shammodels/gsph/modules/io/GSPHCheckpoint.hpp"
 #include "shamrock/patch/PatchDataLayerLayout.hpp"
 #include "shamsys/legacy/log.hpp"
 #include <filesystem>
