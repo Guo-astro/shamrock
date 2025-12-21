@@ -12,7 +12,7 @@
 /**
  * @file VTKDump.hpp
  * @author Guo Yansong (guo.yansong.ngy@gmail.com)
- * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr)
+ * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr) --no git blame--
  * @brief VTK dump module for GSPH solver
  */
 
