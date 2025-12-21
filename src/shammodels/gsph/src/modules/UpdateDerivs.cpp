@@ -28,6 +28,7 @@
 #include "shammodels/gsph/modules/UpdateDerivs.hpp"
 #include "shambackends/math.hpp"
 #include "shammath/sphkernels.hpp"
+#include "shammodels/gsph/modules/RiemannSolvers.hpp"
 #include "shammodels/sph/math/density.hpp"
 #include "shamsys/legacy/log.hpp"
 #include "shamtree/TreeTraversal.hpp"
