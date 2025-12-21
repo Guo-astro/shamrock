@@ -257,7 +257,7 @@ namespace shammodels::gsph {
         inline SolverConfig gen_default_config() {
             SolverConfig cfg;
             cfg.set_riemann_iterative();              // Default to iterative Riemann solver
-            cfg.set_reconstruct_piecewise_constant(); // Default to 1st order
+            cfg.set_reconstruct_first_order(); // Default to 1st order
             cfg.set_eos_adiabatic(Tscal{1.4});
             cfg.set_boundary_periodic();
             return cfg;
@@ -352,6 +352,14 @@ namespace shammodels::gsph {
         ////////////////////////////////////////////////////////////////////////////////////////////
         // Simulation control
         ////////////////////////////////////////////////////////////////////////////////////////////
+
+        /**
+         * @brief Initialize solver state before first evolution step
+         *
+         * Must be called after setting up particles and before calling evolve_once().
+         * This updates load balancing values and initializes the solver graph.
+         */
+        inline void init_before_evolve() { solver.update_sync_load_values(); }
 
         TimestepLog timestep() { return solver.evolve_once(); }
 

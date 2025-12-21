@@ -515,6 +515,9 @@ void shammodels::gsph::Solver<Tvec, Kern>::apply_position_boundary(Tscal time_va
     reatrib.reatribute_patch_objects(storage.serial_patch_tree.get(), "xyz");
 }
 
+// NOTE: Wall particles not yet implemented for GSPH
+// TODO: Enable this function when wall boundary support is added
+#if 0
 template<class Tvec, template<class> class Kern>
 u64 shammodels::gsph::Solver<Tvec, Kern>::update_wall_particles(u32 num_layers, u32 wall_flags) {
     StackEntry stack_loc{};
@@ -809,6 +812,7 @@ u64 shammodels::gsph::Solver<Tvec, Kern>::update_wall_particles(u32 num_layers, 
     wall_particles_created = shamalgs::collective::allreduce_sum(wall_particles_created);
     return wall_particles_created;
 }
+#endif // Wall particles not yet implemented
 
 template<class Tvec, template<class> class Kern>
 void shammodels::gsph::Solver<Tvec, Kern>::do_predictor_leapfrog(Tscal dt) {
@@ -1044,8 +1048,8 @@ void shammodels::gsph::Solver<Tvec, Kern>::compute_omega() {
     });
 
     // Ensure fields are allocated for all patches with correct sizes
-    omega_field.ensure_sizes(sizes);
-    density_field.ensure_sizes(sizes);
+    omega_field.ensure_sizes(sizes->indexes);
+    density_field.ensure_sizes(sizes->indexes);
 
     // Compute density and omega via SPH summation using neighbor cache
     // Reference: g_pre_interaction.cpp from sphcode
@@ -1082,7 +1086,7 @@ void shammodels::gsph::Solver<Tvec, Kern>::compute_omega() {
     // 3. If h grows beyond tolerance, signal for cache rebuild
     // =========================================================================
 
-    auto &merged_xyzh = storage.merged_xyzh.get();
+    // merged_xyzh is already declared above, reuse it
 
     // Create field references for the iteration module
     // Position spans (from merged xyzh)
@@ -1579,7 +1583,11 @@ bool shammodels::gsph::Solver<Tvec, Kern>::apply_corrector(Tscal dt, u64 Npart_a
 
 template<class Tvec, template<class> class Kern>
 void shammodels::gsph::Solver<Tvec, Kern>::update_sync_load_values() {
-    // Update load balancing values - simplified for now
+    // Update load balancing values based on particle count per patch
+    // This sets is_load_values_up_to_date = true in the scheduler
+    scheduler().update_local_load_value([&](shamrock::patch::Patch p) {
+        return scheduler().patch_data.owned_data.get(p.id_patch).get_obj_cnt();
+    });
 }
 
 template<class Tvec, template<class> class Kern>
@@ -1602,8 +1610,14 @@ shammodels::gsph::TimestepLog shammodels::gsph::Solver<Tvec, Kern>::evolve_once(
     shambase::Timer tstep;
     tstep.start();
 
-    // Load balancing step
+    // Load balancing step - following SPH pattern:
+    // 1. Update load values first (required before scheduler_step)
+    // 2. Call scheduler_step(true, true) which may do splits/merges (invalidates load values)
+    // 3. Update load values again (needed for scheduler_step(false, false))
+    // 4. Call scheduler_step(false, false) for final sync
+    update_sync_load_values();
     scheduler().scheduler_step(true, true);
+    update_sync_load_values();
     scheduler().scheduler_step(false, false);
 
     // Give to the solvergraph the patch rank owners

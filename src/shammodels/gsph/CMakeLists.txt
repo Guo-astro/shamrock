@@ -16,6 +16,7 @@ set(Sources
     src/SolverConfig.cpp
     src/Solver.cpp
     src/Model.cpp
+    src/modules/IterateSmoothingLengthDensity.cpp
     src/modules/UpdateDerivs.cpp
     src/modules/io/VTKDump.cpp
     src/modules/io/GSPHCheckpoint.cpp

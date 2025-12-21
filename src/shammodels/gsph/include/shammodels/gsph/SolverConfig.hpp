@@ -216,12 +216,8 @@ struct shammodels::gsph::SolverConfig {
 
     inline void set_boundary_free() { boundary_config.set_free(); }
     inline void set_boundary_periodic() { boundary_config.set_periodic(); }
-    /// Wall boundaries use dynamic walls with periodic BC
-    /// This sets up periodic boundaries with dynamic wall particles
-    inline void set_boundary_wall(u32 num_layers = 4, u32 flags = 0x03) {
-        boundary_config.set_periodic();
-        set_dynamic_walls(num_layers, flags);
-    }
+    // NOTE: Wall boundaries not yet implemented for GSPH
+    // TODO: Add wall particle support in future PR
 
     /**
      * @brief Set shearing periodic boundary conditions
