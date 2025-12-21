@@ -10,7 +10,7 @@
 /**
  * @file Solver.cpp
  * @author Guo Yansong (guo.yansong.ngy@gmail.com)
- * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr)
+ * @author Yona Lapeyre (yona.lapeyre@ens-lyon.fr) --no git blame--
  * @brief GSPH Solver implementation
  *
  * The GSPH method originated from:
