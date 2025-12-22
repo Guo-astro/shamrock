@@ -76,7 +76,9 @@ namespace shammodels::gsph::modules {
 
         using Cfg_Riemann = typename Config::RiemannConfig;
         using Iterative   = typename Cfg_Riemann::Iterative;
+        using Exact       = typename Cfg_Riemann::Exact;
         using HLLC        = typename Cfg_Riemann::HLLC;
+        using Roe         = typename Cfg_Riemann::Roe;
 
         /**
          * @brief Update derivatives using iterative Riemann solver (van Leer 1997)

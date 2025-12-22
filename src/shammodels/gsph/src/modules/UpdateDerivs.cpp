@@ -28,7 +28,6 @@
 #include "shammodels/gsph/modules/UpdateDerivs.hpp"
 #include "shambackends/math.hpp"
 #include "shammath/sphkernels.hpp"
-#include "shammodels/gsph/math/riemann/iterative.hpp"
 #include "shammodels/sph/math/density.hpp"
 #include "shamsys/legacy/log.hpp"
 #include "shamtree/TreeTraversal.hpp"
@@ -216,23 +215,21 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_ite
                     const Tscal u_a_proj = sycl::dot(vxyz_a, r_ab_unit);
                     const Tscal u_b_proj = sycl::dot(vxyz_b, r_ab_unit);
 
-                    // Solve 1D Riemann problem using iterative solver from header
+                    // Solve 1D Riemann problem using iterative solver
                     // IMPORTANT: Convention follows reference (g_fluid_force.cpp):
                     //   - r_ab_unit points from b to a (neighbor to current)
                     //   - Along this axis, b is at "left" (lower s), a is at "right" (higher s)
                     //   - Left state = neighbor b, Right state = current a
-                    auto riemann_result = riemann::iterative_solver<Tscal>(
-                        u_b_proj,
+                    auto [p_star, v_star] = gsph::riemann_iterative<Tscal>(
                         rho_b,
+                        u_b_proj,
                         P_b, // Left = neighbor (at lower s along r_ab_unit)
-                        u_a_proj,
                         rho_a,
+                        u_a_proj,
                         P_a, // Right = current (at higher s along r_ab_unit)
                         gamma,
                         tol,
                         max_iter);
-                    Tscal p_star = riemann_result.p_star;
-                    Tscal v_star = riemann_result.v_star;
 
                     // Limit p_star to prevent excessive shock forces
                     // Maximum p_star is limited to a multiple of the average pressure
@@ -256,9 +253,10 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_ite
 
                     sum_axyz -= coeff * r_ab_unit;
 
-                    // GSPH energy equation (Cha & Whitworth 2003)
-                    // du_a/dt = -dot(f, v* - v_a) where f is same force as momentum
-                    // Uses symmetric form: same coefficient as momentum equation
+                    // GSPH energy equation (Cha & Whitworth 2003, Eq. 11)
+                    // du_a/dt = -sum_b m_b * p* * (v* - v_a) * nabla_W_a / (rho_a^2 * omega_a)
+                    // NOTE: Energy equation is NOT symmetric - only uses particle a's kernel
+                    // gradient
                     if (do_energy) {
                         sum_du_a -= coeff * (v_star - u_a_proj);
                     }
@@ -268,7 +266,7 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_ite
                 // Maximum acceleration is based on expected shock dynamics
                 // For Sod tube: max |a| ~ 10 * max(cs^2) / h ~ 10 * 1.4 / 0.004 ~ 3500
                 // Use a generous limit to allow shocks while preventing instabilities
-                const Tscal max_acc = Tscal(MAX_ACCELERATION_CLAMP);
+                const Tscal max_acc = Tscal(1e6); // Large but finite limit
                 Tscal acc_mag       = sycl::sqrt(sycl::dot(sum_axyz, sum_axyz));
                 if (acc_mag > max_acc) {
                     sum_axyz *= max_acc / acc_mag;
@@ -276,7 +274,7 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_ite
 
                 // Clamp du/dt to prevent energy blow-up
                 if (do_energy) {
-                    const Tscal max_dudt = Tscal(MAX_DUDT_CLAMP);
+                    const Tscal max_dudt = Tscal(1e6);
                     sum_du_a             = sycl::clamp(sum_du_a, -max_dudt, max_dudt);
                 }
 
@@ -447,19 +445,18 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_hll
                     const Tscal u_a_proj = sycl::dot(vxyz_a, r_ab_unit);
                     const Tscal u_b_proj = sycl::dot(vxyz_b, r_ab_unit);
 
-                    // Use HLLC approximate Riemann solver from header (faster than iterative)
+                    // Use HLLC approximate Riemann solver (faster than iterative)
                     // IMPORTANT: Convention follows reference (g_fluid_force.cpp):
                     //   - Left state = neighbor b, Right state = current a
-                    auto riemann_result = riemann::hllc_solver<Tscal>(
-                        u_b_proj,
+                    auto [p_star, v_star] = gsph::riemann_hllc<Tscal>(
                         rho_b,
-                        P_b, // Left = neighbor
-                        u_a_proj,
+                        u_b_proj,
+                        P_b,
+                        cs_b, // Left = neighbor
                         rho_a,
-                        P_a, // Right = current
-                        gamma);
-                    Tscal p_star = riemann_result.p_star;
-                    Tscal v_star = riemann_result.v_star;
+                        u_a_proj,
+                        P_a,
+                        cs_a); // Right = current
 
                     // Limit p_star to prevent excessive shock forces
                     const Tscal p_avg = Tscal(0.5) * (P_a + P_b);
@@ -478,16 +475,17 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_hll
 
                     sum_axyz -= coeff * r_ab_unit;
 
-                    // GSPH energy equation (Cha & Whitworth 2003)
-                    // du_a/dt = -dot(f, v* - v_a) where f is same force as momentum
-                    // Uses symmetric form: same coefficient as momentum equation
+                    // GSPH energy equation (Cha & Whitworth 2003, Eq. 11)
+                    // du_a/dt = -sum_b m_b * p* * (v* - v_a) * nabla_W_a / (rho_a^2 * omega_a)
+                    // NOTE: Energy equation is NOT symmetric - only uses particle a's kernel
+                    // gradient
                     if (do_energy) {
                         sum_du_a -= coeff * (v_star - u_a_proj);
                     }
                 });
 
                 // Clamp acceleration to prevent numerical blow-up at shock fronts
-                const Tscal max_acc = Tscal(MAX_ACCELERATION_CLAMP);
+                const Tscal max_acc = Tscal(1e6);
                 Tscal acc_mag       = sycl::sqrt(sycl::dot(sum_axyz, sum_axyz));
                 if (acc_mag > max_acc) {
                     sum_axyz *= max_acc / acc_mag;
@@ -495,7 +493,7 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_hll
 
                 // Clamp du/dt to prevent energy blow-up
                 if (do_energy) {
-                    const Tscal max_dudt = Tscal(MAX_DUDT_CLAMP);
+                    const Tscal max_dudt = Tscal(1e6);
                     sum_du_a             = sycl::clamp(sum_du_a, -max_dudt, max_dudt);
                 }
 
