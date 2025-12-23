@@ -146,7 +146,7 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_ite
 
         auto e = q.submit(depends_list, [&](sycl::handler &cgh) {
             const Tscal pmass    = solver_config.gpart_mass;
-            const Tscal gamma    = solver_config.gamma;
+            const Tscal gamma    = solver_config.get_eos_gamma();
             const Tscal tol      = cfg.tol;
             const u32 max_iter   = cfg.max_iter;
             const bool do_energy = has_uint;
@@ -388,7 +388,7 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_hll
 
         auto e = q.submit(depends_list, [&](sycl::handler &cgh) {
             const Tscal pmass    = solver_config.gpart_mass;
-            const Tscal gamma    = solver_config.gamma;
+            const Tscal gamma    = solver_config.get_eos_gamma();
             const bool do_energy = has_uint;
 
             tree::ObjectCacheIterator particle_looper(ploop_ptrs);
