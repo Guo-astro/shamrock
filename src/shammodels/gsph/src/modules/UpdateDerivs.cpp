@@ -256,11 +256,13 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_ite
 
                     sum_axyz -= coeff * r_ab_unit;
 
-                    // GSPH energy equation (Cha & Whitworth 2003)
-                    // du_a/dt = -dot(f, v* - v_a) where f is same force as momentum
-                    // Uses symmetric form: same coefficient as momentum equation
+                    // GSPH energy equation (Cha & Whitworth 2003, Eq. 11)
+                    // du_a/dt = sum_b m_b * p* * (v* - v_a) . nabla_W_a / (rho_a^2 * omega_a)
+                    // Note: Uses only particle a's properties, NOT symmetric like momentum
                     if (do_energy) {
-                        sum_du_a -= coeff * (v_star - u_a_proj);
+                        const Tscal sub_fact_a   = rho_a_sq * omega_a;
+                        const Tscal energy_coeff = pmass * p_star * sham::inv_sat_zero(sub_fact_a);
+                        sum_du_a -= energy_coeff * Fab_a * (v_star - u_a_proj);
                     }
                 });
 
@@ -478,11 +480,13 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_hll
 
                     sum_axyz -= coeff * r_ab_unit;
 
-                    // GSPH energy equation (Cha & Whitworth 2003)
-                    // du_a/dt = -dot(f, v* - v_a) where f is same force as momentum
-                    // Uses symmetric form: same coefficient as momentum equation
+                    // GSPH energy equation (Cha & Whitworth 2003, Eq. 11)
+                    // du_a/dt = sum_b m_b * p* * (v* - v_a) . nabla_W_a / (rho_a^2 * omega_a)
+                    // Note: Uses only particle a's properties, NOT symmetric like momentum
                     if (do_energy) {
-                        sum_du_a -= coeff * (v_star - u_a_proj);
+                        const Tscal sub_fact_a   = rho_a_sq * omega_a;
+                        const Tscal energy_coeff = pmass * p_star * sham::inv_sat_zero(sub_fact_a);
+                        sum_du_a -= energy_coeff * Fab_a * (v_star - u_a_proj);
                     }
                 });
 
