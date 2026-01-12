@@ -195,8 +195,9 @@ void shammodels::gsph::Solver<Tvec, Kern>::merge_position_ghost() {
 
     // Get field indices from xyzh_ghost_layout
     using namespace gsph::names;
-    const u32 ixyz_ghost   = storage.xyzh_ghost_layout->template get_field_idx<Tvec>(common::xyz);
-    const u32 ihpart_ghost = storage.xyzh_ghost_layout->template get_field_idx<Tscal>(common::hpart);
+    const u32 ixyz_ghost = storage.xyzh_ghost_layout->template get_field_idx<Tvec>(common::xyz);
+    const u32 ihpart_ghost
+        = storage.xyzh_ghost_layout->template get_field_idx<Tscal>(common::hpart);
 
     // Set element counts
     shambase::get_check_ref(storage.part_counts).indexes
@@ -653,11 +654,11 @@ void shammodels::gsph::Solver<Tvec, Kern>::communicate_merge_ghosts_fields() {
 
     // Gradient field indices (for MUSCL reconstruction)
     const bool has_grads = solver_config.requires_gradients();
-    u32 igrad_d_interf   = has_grads ? ghost_layout.get_field_idx<Tvec>(newtonian::grad_density) : 0;
-    u32 igrad_p_interf   = has_grads ? ghost_layout.get_field_idx<Tvec>(newtonian::grad_pressure) : 0;
-    u32 igrad_vx_interf  = has_grads ? ghost_layout.get_field_idx<Tvec>(newtonian::grad_vx) : 0;
-    u32 igrad_vy_interf  = has_grads ? ghost_layout.get_field_idx<Tvec>(newtonian::grad_vy) : 0;
-    u32 igrad_vz_interf  = has_grads ? ghost_layout.get_field_idx<Tvec>(newtonian::grad_vz) : 0;
+    u32 igrad_d_interf = has_grads ? ghost_layout.get_field_idx<Tvec>(newtonian::grad_density) : 0;
+    u32 igrad_p_interf = has_grads ? ghost_layout.get_field_idx<Tvec>(newtonian::grad_pressure) : 0;
+    u32 igrad_vx_interf = has_grads ? ghost_layout.get_field_idx<Tvec>(newtonian::grad_vx) : 0;
+    u32 igrad_vy_interf = has_grads ? ghost_layout.get_field_idx<Tvec>(newtonian::grad_vy) : 0;
+    u32 igrad_vz_interf = has_grads ? ghost_layout.get_field_idx<Tvec>(newtonian::grad_vz) : 0;
 
     using InterfaceBuildInfos = typename gsph::GSPHGhostHandler<Tvec>::InterfaceBuildInfos;
 
@@ -872,8 +873,9 @@ void shammodels::gsph::Solver<Tvec, Kern>::compute_omega() {
     shamrock::solvergraph::DDPatchDataFieldRef<Tscal> hnew_refs = {};
 
     // Get field indices from xyzh_ghost_layout for merged data access
-    const u32 ixyz_ghost   = storage.xyzh_ghost_layout->template get_field_idx<Tvec>(common::xyz);
-    const u32 ihpart_ghost = storage.xyzh_ghost_layout->template get_field_idx<Tscal>(common::hpart);
+    const u32 ixyz_ghost = storage.xyzh_ghost_layout->template get_field_idx<Tvec>(common::xyz);
+    const u32 ihpart_ghost
+        = storage.xyzh_ghost_layout->template get_field_idx<Tscal>(common::hpart);
 
     // Populate field references
     scheduler().for_each_patchdata_nonempty(
