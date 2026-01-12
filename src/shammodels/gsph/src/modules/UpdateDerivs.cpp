@@ -59,29 +59,29 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_ite
 
     using namespace shamrock;
     using namespace shamrock::patch;
+    using namespace gsph::names;
 
     PatchDataLayerLayout &pdl = scheduler().pdl();
 
     // Get field indices from the patch data layout
-    const u32 ixyz   = pdl.get_field_idx<Tvec>(gsph::names::common::xyz);
-    const u32 ivxyz  = pdl.get_field_idx<Tvec>(gsph::names::newtonian::vxyz);
-    const u32 iaxyz  = pdl.get_field_idx<Tvec>(gsph::names::newtonian::axyz);
-    const u32 ihpart = pdl.get_field_idx<Tscal>(gsph::names::common::hpart);
+    const u32 ixyz   = pdl.get_field_idx<Tvec>(common::xyz);
+    const u32 ivxyz  = pdl.get_field_idx<Tvec>(newtonian::vxyz);
+    const u32 iaxyz  = pdl.get_field_idx<Tvec>(newtonian::axyz);
+    const u32 ihpart = pdl.get_field_idx<Tscal>(common::hpart);
 
     // Optional internal energy fields (for adiabatic EOS)
     const bool has_uint = solver_config.has_field_uint();
-    const u32 iuint     = has_uint ? pdl.get_field_idx<Tscal>(gsph::names::newtonian::uint) : 0;
-    const u32 iduint    = has_uint ? pdl.get_field_idx<Tscal>(gsph::names::newtonian::duint) : 0;
+    const u32 iuint     = has_uint ? pdl.get_field_idx<Tscal>(newtonian::uint) : 0;
+    const u32 iduint    = has_uint ? pdl.get_field_idx<Tscal>(newtonian::duint) : 0;
 
     // Ghost layout for neighbor data
     shamrock::patch::PatchDataLayerLayout &ghost_layout
         = shambase::get_check_ref(storage.ghost_layout.get());
-    u32 ihpart_interf   = ghost_layout.get_field_idx<Tscal>(gsph::names::common::hpart);
-    u32 ivxyz_interf    = ghost_layout.get_field_idx<Tvec>(gsph::names::newtonian::vxyz);
-    u32 iomega_interf   = ghost_layout.get_field_idx<Tscal>(gsph::names::newtonian::omega);
-    u32 idensity_interf = ghost_layout.get_field_idx<Tscal>(gsph::names::newtonian::density);
-    u32 iuint_interf
-        = has_uint ? ghost_layout.get_field_idx<Tscal>(gsph::names::newtonian::uint) : 0;
+    u32 ihpart_interf   = ghost_layout.get_field_idx<Tscal>(common::hpart);
+    u32 ivxyz_interf    = ghost_layout.get_field_idx<Tvec>(newtonian::vxyz);
+    u32 iomega_interf   = ghost_layout.get_field_idx<Tscal>(newtonian::omega);
+    u32 idensity_interf = ghost_layout.get_field_idx<Tscal>(newtonian::density);
+    u32 iuint_interf    = has_uint ? ghost_layout.get_field_idx<Tscal>(newtonian::uint) : 0;
 
     // Get merged data and caches from storage
     auto &merged_xyzh                                 = storage.merged_xyzh.get();
@@ -277,28 +277,28 @@ void shammodels::gsph::modules::UpdateDerivs<Tvec, SPHKernel>::update_derivs_hll
 
     using namespace shamrock;
     using namespace shamrock::patch;
+    using namespace gsph::names;
 
     PatchDataLayerLayout &pdl = scheduler().pdl();
 
     // Get field indices
-    const u32 ixyz   = pdl.get_field_idx<Tvec>(gsph::names::common::xyz);
-    const u32 ivxyz  = pdl.get_field_idx<Tvec>(gsph::names::newtonian::vxyz);
-    const u32 iaxyz  = pdl.get_field_idx<Tvec>(gsph::names::newtonian::axyz);
-    const u32 ihpart = pdl.get_field_idx<Tscal>(gsph::names::common::hpart);
+    const u32 ixyz   = pdl.get_field_idx<Tvec>(common::xyz);
+    const u32 ivxyz  = pdl.get_field_idx<Tvec>(newtonian::vxyz);
+    const u32 iaxyz  = pdl.get_field_idx<Tvec>(newtonian::axyz);
+    const u32 ihpart = pdl.get_field_idx<Tscal>(common::hpart);
 
     const bool has_uint = solver_config.has_field_uint();
-    const u32 iuint     = has_uint ? pdl.get_field_idx<Tscal>(gsph::names::newtonian::uint) : 0;
-    const u32 iduint    = has_uint ? pdl.get_field_idx<Tscal>(gsph::names::newtonian::duint) : 0;
+    const u32 iuint     = has_uint ? pdl.get_field_idx<Tscal>(newtonian::uint) : 0;
+    const u32 iduint    = has_uint ? pdl.get_field_idx<Tscal>(newtonian::duint) : 0;
 
     // Ghost layout
     shamrock::patch::PatchDataLayerLayout &ghost_layout
         = shambase::get_check_ref(storage.ghost_layout.get());
-    u32 ihpart_interf   = ghost_layout.get_field_idx<Tscal>(gsph::names::common::hpart);
-    u32 ivxyz_interf    = ghost_layout.get_field_idx<Tvec>(gsph::names::newtonian::vxyz);
-    u32 iomega_interf   = ghost_layout.get_field_idx<Tscal>(gsph::names::newtonian::omega);
-    u32 idensity_interf = ghost_layout.get_field_idx<Tscal>(gsph::names::newtonian::density);
-    u32 iuint_interf
-        = has_uint ? ghost_layout.get_field_idx<Tscal>(gsph::names::newtonian::uint) : 0;
+    u32 ihpart_interf   = ghost_layout.get_field_idx<Tscal>(common::hpart);
+    u32 ivxyz_interf    = ghost_layout.get_field_idx<Tvec>(newtonian::vxyz);
+    u32 iomega_interf   = ghost_layout.get_field_idx<Tscal>(newtonian::omega);
+    u32 idensity_interf = ghost_layout.get_field_idx<Tscal>(newtonian::density);
+    u32 iuint_interf    = has_uint ? ghost_layout.get_field_idx<Tscal>(newtonian::uint) : 0;
 
     auto &merged_xyzh                                 = storage.merged_xyzh.get();
     shamrock::solvergraph::Field<Tscal> &omega_field  = shambase::get_check_ref(storage.omega);
